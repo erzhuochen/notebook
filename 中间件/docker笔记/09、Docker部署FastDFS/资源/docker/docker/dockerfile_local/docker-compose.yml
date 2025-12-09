@@ -1,0 +1,26 @@
+version: '3'
+services:
+  dfs-tracker:
+    image: awei/dfs:6.09
+    container_name: dfs-tracker
+    network_mode: host
+    volumes:
+      - /etc/localtime:/etc/localtime
+      - /home/dfs/docker/dockerfile_local/tracker/data/:/data/fastdfs_data
+      - /home/dfs/docker/dockerfile_local/conf/:/etc/fdfs
+    command: tracker
+  dfs-storage:
+    image: awei/dfs:6.09
+    container_name: dfs-storage
+    network_mode: host
+    privileged: true
+    volumes:
+      - /etc/localtime:/etc/localtime
+      - /home/dfs/docker/dockerfile_local/storage/metadata/:/data/fastdfs_data
+      - /home/dfs/docker/dockerfile_local/conf/:/etc/fdfs
+      - /home/dfs/docker/dockerfile_local/upload/:/data/fastdfs/upload
+      - /home/dfs/docker/dockerfile_local/nginx_conf/nginx.conf:/usr/local/nginx/conf/nginx.conf
+      - /home/dfs/docker/dockerfile_local/nginx_conf.d:/usr/local/nginx/conf.d
+    command: storage
+    depends_on:
+      - dfs-tracker

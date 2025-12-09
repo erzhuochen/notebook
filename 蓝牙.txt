@@ -1,0 +1,8 @@
+华为：BluetoothDevice_C0DA5E38316D
+linkkey：ab5756352a384f4ab09ba29bf8e68ece
+
+g913TKL:dd4a27305fdb
+EDIV:0
+ERand:0
+LTK:9fdd1379f5569a2ebd41afc0d88c9da0
+
