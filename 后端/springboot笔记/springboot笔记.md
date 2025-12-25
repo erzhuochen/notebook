@@ -662,6 +662,192 @@ public class UserController {
 - 缺点：需要额外编写setter方法，增加了代码量
 
 
+### 为什么 Spring 推荐[构造函数注入](https://zhida.zhihu.com/search?content_id=252350647&content_type=Article&match_order=1&q=%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0%E6%B3%A8%E5%85%A5&zhida_source=entity)而非 [@Autowired](https://zhida.zhihu.com/search?content_id=252350647&content_type=Article&match_order=1&q=%40Autowired&zhida_source=entity)？
+
+在使用 Spring 框架开发时，@Autowired 是一种简便的依赖注入方式。然而，随着项目的规模和复杂度增长，构造函数注入逐渐成为官方推荐的最佳实践。这篇文章将分析为什么构造函数注入更优，并通过代码示例展示如何实现。
+
+---
+
+#### **使用 @Autowired 的问题**
+
+**1.1 隐式依赖，降低代码可读性**  
+@Autowired 依赖 [Spring 容器](https://zhida.zhihu.com/search?content_id=252350647&content_type=Article&match_order=1&q=Spring+%E5%AE%B9%E5%99%A8&zhida_source=entity)的自动扫描机制，这使得依赖关系隐藏在注解之下，阅读代码时难以直观地了解类的依赖。  
+**_示例：_**
+
+```text
+@Component
+public class OrderService {
+
+    @Autowired
+ private UserRepository userRepository;
+
+    @Autowired
+ private NotificationService notificationService;
+
+ public void processOrder() {
+ // 业务逻辑
+    }
+}
+```
+
+在上述代码中，OrderService 的依赖被隐式注入。代码审查时无法快速看出类需要哪些依赖，增加了理解成本。  
+**1.2 不便于[单元测试](https://zhida.zhihu.com/search?content_id=252350647&content_type=Article&match_order=1&q=%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95&zhida_source=entity)**  
+在单元测试中，如果使用 @Autowired 注解，依赖必须由 Spring 容器管理，这让测试变得更加复杂，尤其是需要引入 [Mock 对象](https://zhida.zhihu.com/search?content_id=252350647&content_type=Article&match_order=1&q=Mock+%E5%AF%B9%E8%B1%A1&zhida_source=entity)时。  
+**_示例：_**
+
+```text
+@RunWith(SpringRunner.class)
+@SpringBootTest
+public class OrderServiceTest {
+
+    @Autowired
+ private OrderService orderService;
+
+    @MockBean
+ private UserRepository userRepository;
+
+    @MockBean
+ private NotificationService notificationService;
+
+    @Test
+ public void testProcessOrder() {
+ // 测试逻辑
+    }
+}
+```
+
+虽然可以通过 @MockBean 实现 Mock，但这种方式将测试耦合到了 Spring 容器，而不是独立测试的理想方式。  
+**1.3 [空指针异常](https://zhida.zhihu.com/search?content_id=252350647&content_type=Article&match_order=1&q=%E7%A9%BA%E6%8C%87%E9%92%88%E5%BC%82%E5%B8%B8&zhida_source=entity)风险**  
+如果 Spring 容器未正确扫描到某个依赖，@Autowired 注解不会在编译时抛出错误，而是在运行时抛出空指针异常。这种问题在大型项目中可能非常隐蔽且难以排查。
+
+---
+
+#### **推荐的构造函数注入**
+
+构造函数注入是一种更显式的方式，可以明确地声明依赖关系，并且在编译时检查依赖的完整性。这种方式比 @Autowired 更加安全、清晰，并且便于测试。
+
+2.1 使用构造函数注入
+
+通过构造函数注入，将依赖关系作为类的必需参数，明确暴露类的依赖。
+
+_示例：_
+
+```text
+@Component
+public class OrderService {
+
+ private final UserRepository userRepository;
+ private final NotificationService notificationService;
+
+ // 构造函数注入
+ public OrderService(UserRepository userRepository, NotificationService notificationService) {
+ this.userRepository = userRepository;
+ this.notificationService = notificationService;
+    }
+
+ public void processOrder() {
+ // 业务逻辑
+    }
+}
+```
+
+**优点：**
+
+1. 明确列出了类的依赖，代码更加清晰。
+2. 避免了字段级注入的空指针异常风险。
+3. 提升了代码的可测试性。
+
+**2.2 单元测试示例**  
+构造函数注入便于在测试中手动创建对象，并注入 Mock 依赖。
+
+```text
+import static org.mockito.Mockito.*;
+
+public class OrderServiceTest {
+
+ private OrderService orderService;
+ private UserRepository userRepository;
+ private NotificationService notificationService;
+
+    @Before
+ public void setUp() {
+        userRepository = mock(UserRepository.class);
+        notificationService = mock(NotificationService.class);
+        orderService = new OrderService(userRepository, notificationService);
+    }
+
+    @Test
+ public void testProcessOrder() {
+ // 测试逻辑
+    }
+}
+```
+
+这种方式完全脱离了 Spring 容器，使测试更加独立且灵活。  
+**2.3 使用 [Lombok](https://zhida.zhihu.com/search?content_id=252350647&content_type=Article&match_order=1&q=Lombok&zhida_source=entity) 简化构造函数注入**  
+如果项目中使用了 Lombok，可以通过 @RequiredArgsConstructor 自动生成构造函数，进一步简化代码。  
+**_示例：_**
+
+```text
+@RequiredArgsConstructor
+@Component
+public class OrderService {
+
+ private final UserRepository userRepository;
+ private final NotificationService notificationService;
+
+ public void processOrder() {
+ // 业务逻辑
+    }
+}
+```
+
+只需声明依赖为 final，Lombok 就会自动生成包含这些依赖的构造函数。  
+**3. 显式 Java 配置：另一种替代方案**  
+除了构造函数注入，还可以通过显式 Java 配置管理依赖。这种方式尤其适用于复杂场景，依赖关系清晰且完全由开发者掌控。  
+**_示例：_**
+
+```text
+@Configuration
+public class AppConfig {
+
+    @Bean
+ public UserRepository userRepository() {
+ return new UserRepositoryImpl();
+    }
+
+    @Bean
+ public NotificationService notificationService() {
+ return new EmailNotificationService();
+    }
+
+    @Bean
+ public OrderService orderService(UserRepository userRepository, NotificationService notificationService) {
+ return new OrderService(userRepository, notificationService);
+    }
+}
+```
+
+**优点：**
+
+1. 所有依赖关系都在配置类中显式定义。
+2. 避免了组件扫描带来的不确定性。
+3. 更容易控制和调试 Bean 的创建过程。
+
+---
+
+##   
+**总结**
+
+虽然 @Autowired 是一种方便的依赖注入方式，但在大型项目中，它的隐式性、不便于测试和空指针风险让它逐渐不再被推荐。相比之下：
+
+- **构造函数注入** 是一种更显式、安全和可维护的方式。
+- **显式 Java 配置** 提供了清晰的依赖管理方法。
+- **Lombok** 可以进一步简化构造函数注入的代码。
+
+在现代 Spring 开发中，建议优先使用构造函数注入，以提升代码的可读性和可维护性。如果你的项目中还在广泛使用 @Autowired，不妨尝试逐步迁移到更优的依赖注入方式，让代码更加健壮和易于测试。
+
+
 
 ## 3.2 存在多个相同类型的bean对象
 
