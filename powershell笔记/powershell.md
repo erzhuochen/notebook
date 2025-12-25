@@ -1,3 +1,4 @@
+
 # 创建服务
 
 `sc create RedisService binPath= "C:\Redis-x64-3.2.100\redis-server.exe --service-run C:\Redis-x64-3.2.100\redis.windows.conf" DisplayName= "Redis" start= auto`
