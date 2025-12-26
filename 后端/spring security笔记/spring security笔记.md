@@ -696,3 +696,70 @@ filter 作为web服务器中的重要的一部分，一般常用来做一些前�
 filter的注册几种方式总结，在开发中一般灵活使用，没有特殊的请求，常规都够用
 
 了解原理是为了更好的理解，filter的过滤链是Spring Security的重要切入点，理解了filter再理解其他的框架就不难了，甚至可以自己简单写出一个列斯的框架
+
+
+# 一、架构
+### 1. **Filter 的作用与工作机制**
+
+- **Filter** 是在 **Servlet 容器** 中进行请求处理的一种机制。它允许我们在请求到达 `Servlet`（如 `DispatcherServlet`）之前或之后对请求（`HttpServletRequest`）和响应（`HttpServletResponse`）进行处理。
+    
+- 每个 `Filter` 可以通过 `FilterChain` 影响下游的其他 `Filter` 或 `Servlet`，可以修改请求、响应或防止某些 `Filter` 或 `Servlet` 被调用。
+    
+
+### 2. **Filter 顺序**
+
+- 在多个 `Filter` 配置时，调用顺序非常重要，因为每个 `Filter` 只会影响它下游的 `Filter` 和 `Servlet`。例如，认证 `Filter` 应该在授权 `Filter` 之前执行。
+    
+- Spring Security 的过滤器顺序也可以在配置中进行控制，确保它们按正确的顺序执行。
+    
+
+### 3. **DelegatingFilterProxy**
+
+- `DelegatingFilterProxy` 是 Spring 提供的一个 `Filter` 实现，它允许在 **Servlet 容器** 的生命周期和 **Spring 的 ApplicationContext** 之间建立桥梁。
+    
+- 它的作用是从 Spring 容器中延迟加载实际的 `Filter` Bean，这使得 `Filter` 可以在 Spring 管理下运行，并且可以通过 Spring 的依赖注入机制进行管理。
+    
+
+### 4. **FilterChainProxy 与 SecurityFilterChain**
+
+- `FilterChainProxy` 是 Spring Security 中的一个特殊 `Filter`，它通过 `SecurityFilterChain` 来确定当前请求应该执行哪些 Spring Security 过滤器。
+    
+- `SecurityFilterChain` 用来管理多个安全相关的 `Filter`，它根据请求的 URL 和其他条件来动态选择和执行匹配的 `Filter`。例如，某些 `Filter` 可能只对特定路径或请求类型生效。
+    
+
+### 5. **如何添加自定义 Filter**
+
+- 在 Spring Security 中，添加自定义 `Filter` 通常是在 `SecurityFilterChain` 配置中通过 `addFilterBefore()`、`addFilterAfter()` 或 `addFilterAt()` 方法实现的。这些方法允许你将自定义 `Filter` 插入到 Spring Security 的默认过滤链中。
+    
+- 例如，可以添加一个用于处理租户 ID 的 `TenantFilter`，确保在认证后检查租户权限。
+    
+
+### 6. **Filter 注册机制**
+
+- 尽管你可以在 `Filter` 类上使用 `@Component` 注解，使其成为 Spring 管理的 Bean，但这并不会自动将其注册到 **Servlet 容器** 的过滤链中。你需要显式地将其通过 `FilterRegistrationBean` 或 `SecurityFilterChain` 注册到 Spring Security 的过滤链中。
+    
+- 使用 `FilterRegistrationBean` 可以控制 `Filter` 的 URL 映射、顺序等，避免 `Filter` 被重复注册。
+    
+
+### 7. **处理异常与请求缓存**
+
+- **ExceptionTranslationFilter**：它负责将 `AccessDeniedException` 和 `AuthenticationException` 转换为相应的 HTTP 响应（如 401 或 403 错误），并引导用户进行认证或拒绝访问。
+    
+- **RequestCache**：用于保存用户未认证时请求的 URL，用户成功认证后可以重新发起该请求。这对于处理认证前访问受保护资源的情况非常有用。
+    
+
+### 8. **Spring Security 的日志机制**
+
+- Spring Security 提供了详尽的日志记录功能，特别是在调试认证和授权相关的问题时。你可以通过调整日志级别来记录详细的 `Filter` 调用和错误信息，帮助你更清晰地了解请求的安全处理过程。
+    
+
+### 总结：
+
+- **Filter** 在 Spring Security 中扮演着重要的角色，它们帮助你在不同的请求处理阶段执行安全检查（如认证、授权等）。
+    
+- Spring 使用 **FilterChainProxy** 和 **SecurityFilterChain** 来灵活地管理多个安全 `Filter`，并且根据请求的不同条件来选择合适的 `Filter` 执行。
+    
+- 对于自定义 `Filter`，你需要手动将其注册到 Spring Security 的过滤链中，通常是通过 `FilterRegistrationBean` 或在 `SecurityFilterChain` 中配置。
+    
+
+如果你是初学者，可以从理解 **Filter** 的工作机制开始，逐步学习如何在 Spring Security 中自定义和配置过滤器，控制请求的安全处理流程。
