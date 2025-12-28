@@ -506,212 +506,58 @@ int main() {
 ```
 
 
-# 补充：Filter
-
-## **1、filter**
-
-先看下[web服务器](https://zhida.zhihu.com/search?content_id=223497580&content_type=Article&match_order=1&q=web%E6%9C%8D%E5%8A%A1%E5%99%A8&zhida_source=entity)的filter所处的位置。filter是一个前后连接的链，前面处理完成之后传递给下一个filter处理。
-
-![](spring%20security笔记.assets/file-20251226161516387.png)
-
-### **1.1 filter的接口定义**
-
-```java
-public interface Filter {
-    //初始化方法，整个生命周期中只执行一次。
-    //在init方法成功(失败如抛异常等)执行完前，不能提供过滤服务。
-    //参数FilterConfig用于获取初始化参数
-    public void init(FilterConfig filterConfig) throws ServletException;
-    //执行过滤任务的方法，参数FilterChain表示过滤器链，doFilter方法中只有执行chain.doFilter()后才能调用下一个过滤器的doFilter方法
-    //才能将请求交经下一个Filter或Servlet执行
-    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException;
-    //销毁方法，当移出服务时由web容器调用。整个生命周期中destroy方法只会执行一次
-    //destroy方法可用于释放持有的资源，如内存、文件句柄等
-    public void destroy();
-}
-```
-
-filter的入参是request和response，filter一般是用来做一些[预处理](https://zhida.zhihu.com/search?content_id=223497580&content_type=Article&match_order=1&q=%E9%A2%84%E5%A4%84%E7%90%86&zhida_source=entity)工作，比如做一些检查，验证等工作。
-
-### **1.2 自定义filter**
-
-```text
-public class LoginFilter implements Filter {
-    @Override
-    public void destroy() {
-        System.out.println("filter destroy method");
-    }
-    @Override
-    public void doFilter(ServletRequest arg0, ServletResponse arg1, FilterChain filterChain)
-            throws IOException, ServletException {
-        System.out.println("filter doFilter method ");
-        // 继续传递下去
-        filterChain.doFilter(arg0,arg1);
-    }
-    @Override
-    public void init(FilterConfig arg0) throws ServletException {
-        System.out.println("filter init method");
-    }
-}
-```
-
-## **2、springboot中filter注册几种方式**
-
-### **2.1 手动注册**
-
-```text
-@Configuration
-public class FilterConfig {
-    @Bean
-    public FilterRegistrationBean indexFilterRegistration() {
-        FilterRegistrationBean registration = new FilterRegistrationBean(new LoginFilter());
-        registration.addUrlPatterns("/");
-        return registration;
-    }
-}
-```
-
-### **2.2 注解注册**
-
-**2.2.1 在filter上增加注解@WebFilter**
-
-```text
-@WebFilter(urlPatterns = "/",filterName = "filter1")
-@Order(1)
-public class LoginFilter implements Filter {
-    @Override
-    public void destroy() {
-        System.out.println("filter destroy method");
-    }
-    @Override
-    public void doFilter(ServletRequest arg0, ServletResponse arg1, FilterChain filterChain)
-            throws IOException, ServletException {
-        System.out.println("filter doFilter method   1   ");
-        filterChain.doFilter(arg0,arg1);
-    }
-    @Override
-    public void init(FilterConfig arg0) throws ServletException {
-        System.out.println("filter init method");
-    }
-}
-```
-
-**2.2.2 在启动类上增加注解@ServletComponentScan**
-
-```text
-@SpringBootApplication
-@ServletComponentScan
-public class FilterTestApplication {
-    public static void main(String[] args) {
-        SpringApplication.run(FilterTestApplication.class, args);
-    }
-}
-```
-
-注：
-
-- **@ServletComponentScan 会扫描所有的带有@WebFilter的类，并且注册为servlet。**
-- **如果启动类不添加此注解，在filter上添加Component注解也可以注册为filter**
-- **order注解可以调整filter的顺序**
-
-### **2.3 通过servletContext 注册**
-
-```text
-@Autowired
-ServletContext servletContext;
-servletContext.addFilter()
-```
-
-### 2.4 @Component+在FilterChain中注册
-在 Spring Boot 或 Spring MVC 应用中，`@Component` 注解会将 `Filter` 类注册为一个 Spring Bean，但它并没有自动将 `Filter` 放入 Servlet 容器的过滤链中。为了让 `Filter` 生效并参与请求处理，我们必须显式地将其注册到 `FilterChain` 中。
-
-这就是为什么即使在 `Filter` 类上加上 `@Component` 注解，你仍然需要在 Spring 配置类中使用 `SecurityFilterChain` 或 `FilterRegistrationBean` 来显式注册该 `Filter`。
-可以看看xinji项目笔记中的代码
-
-## **3、原理**
-
-### **3.1 ServletContext**
-
-[Web容器](https://zhida.zhihu.com/search?content_id=223497580&content_type=Article&match_order=1&q=Web%E5%AE%B9%E5%99%A8&zhida_source=entity)在启动时会为每个web应用创建一个ServletContext对象，而这个ServletContext对象就代表当前这个web应用。
-
-一个ServletContext对象代表一个web应用，web应用中所有的Servlet和其他资源都共享一个ServletContext对象，
-
-如果有必要我们就可以通过ServletContext对象进行Servlet之间的通讯。
-
-ServletContext,是一个全局的储存信息的空间，服务器开始，其就存在，服务器关闭，其才释放。request，一个用户可有多个；session，一个用户一个；而servletContext，所有用户共用一个。
-
-![](https://picx.zhimg.com/v2-fb84f532e9b3839d8f9a68b47554686b_1440w.jpg)
-
-ApplicationContext 是ServletContext的实现类，可以看到里面有相应的注册的方法
-
-在程序中获取**ServletContext**
-
-**3.1.1 使用自动注入**
-
-```java
-@Autowired
-private ServletContext servletContext;
-```
-
-**3.1.2 request获取servletContext**
-
-```java
-ServletContext servletContext = request.getServletContext();
-```
-
-**3.1.3 实现 ServletContextListener**
-
-```java
-@Component
-public class TestListener implements ServletContextListener {
-    @Override
-    public void contextInitialized(ServletContextEvent sce) {
-        System.out.println(sce);
-    }
-}
-```
-
-### **3.2 ServletRegistrationBean**
-
-看下Filter的定义，可以看到和webfilter注解内容一样
-
-```java
-public class ServletRegistrationBean<T extends Servlet> extends DynamicRegistrationBean<ServletRegistration.Dynamic> {
-    private static final String[] DEFAULT_MAPPINGS = new String[]{"/*"};
-    private T servlet;
-    private Set<String> urlMappings;
-    private boolean alwaysMapUrl;
-    private int loadOnStartup;
-    private MultipartConfigElement multipartConfig;
-    ......
-    }
-```
-
-在开发中一般使用他的子类FilterRegistrationBean，使用上面2.1 手动注册
-
-## **4、总结**
-
-filter 作为web服务器中的重要的一部分，一般常用来做一些前置处理和对调用请求的中断
-
-filter的注册几种方式总结，在开发中一般灵活使用，没有特殊的请求，常规都够用
-
-了解原理是为了更好的理解，filter的过滤链是Spring Security的重要切入点，理解了filter再理解其他的框架就不难了，甚至可以自己简单写出一个列斯的框架
-
 
 # 一、架构
-### 1. **Filter 的作用与工作机制**
+## 1. Filter回顾
 
-- **Filter** 是在 **Servlet 容器** 中进行请求处理的一种机制。它允许我们在请求到达 `Servlet`（如 `DispatcherServlet`）之前或之后对请求（`HttpServletRequest`）和响应（`HttpServletResponse`）进行处理。
+![](spring%20security笔记.assets/file-20251228102616940.png)
+客户端向应用程序发送一个请求，容器创建一个FilterChain，其中包含Filter示例和Servlet，应该根据请求URI的路径来处理 `HttpServletRequest`。在Spring MVC应用程序中，Servlet是 [`DispatcherServlet`](https://docs.spring.io/spring-framework/docs/6.1.0-M2/reference/html/web.html#mvc-servlet) 的一个实例。一个 `Servlet` 最多可以处理一个 `HttpServletRequest` 和 `HttpServletResponse`。然而，可以使用多个 `Filter` 来完成如下工作。
+
+- 防止下游的 `Filter` 实例或 `Servlet` 被调用。在这种情况下，`Filter` 通常会使用 `HttpServletResponse` 对客户端写入响应。
     
-- 每个 `Filter` 可以通过 `FilterChain` 影响下游的其他 `Filter` 或 `Servlet`，可以修改请求、响应或防止某些 `Filter` 或 `Servlet` 被调用。
+- 修改下游的 `Filter` 实例和 `Servlet` 所使用的 `HttpServletRequest` 或 `HttpServletResponse`。
     
 
-### 2. **Filter 顺序**
+过滤器的力量来自于传入它的 `FilterChain`。
 
-- 在多个 `Filter` 配置时，调用顺序非常重要，因为每个 `Filter` 只会影响它下游的 `Filter` 和 `Servlet`。例如，认证 `Filter` 应该在授权 `Filter` 之前执行。
+`FilterChain` Usage Example
+```java
+public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {
+	// do something before the rest of the application
+    chain.doFilter(request, response); // invoke the rest of the application
+    // do something after the rest of the application
+}
+```
+
+由于一个 `Filter` 只影响下游的 `Filter` 实例和 `Servlet`，所以每个 `Filter` 的调用顺序是非常重要的。
+
+## 2. DelegatingFilterProxy
+Spring 提供了一个名为 [`DelegatingFilterProxy`](https://docs.spring.io/spring-framework/docs/6.1.0-M2/javadoc-api/org/springframework/web/filter/DelegatingFilterProxy.html) 的 `Filter` 实现，允许在 Servlet 容器的生命周期和 Spring 的 `ApplicationContext` 之间建立桥梁。Servlet容器允许通过使用自己的标准来注册 `Filter` 实例，但它不知道 Spring 定义的 Bean。你可以通过标准的Servlet容器机制来注册 `DelegatingFilterProxy`，但将所有工作委托给实现 `Filter` 的Spring Bean。
+
+下面是 `DelegatingFilterProxy` 如何融入 [`Filter` 实例和 `FilterChain` 的](https://springdoc.cn/spring-security/servlet/architecture.html#servlet-filters-review)图片。
+![](spring%20security笔记.assets/file-20251228103020224.png)
+`DelegatingFilterProxy` 从 `ApplicationContext` 查找 _Bean Filter0_，然后调用 _Bean Filter0_。下面的列表显示了 `DelegatingFilterProxy` 的伪代码。
+
+```java
+public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {
+	Filter delegate = getFilterBean(someBeanName); // 1
+	delegate.doFilter(request, response); // 2
+}
+```
+
+| 1   | 延迟地获取被注册为Spring Bean的 Filter。 对于 [DelegatingFilterProxy](https://springdoc.cn/spring-security/servlet/architecture.html#servlet-delegatingfilterproxy-figure) 中的例子，`delegate` 是 _Bean Filter0_ 的一个实例。 |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2   | 将工作委托给 Spring Bean。                                                                                                                                                                                   |
+
+`DelegatingFilterProxy` 的另一个好处是，它允许延迟查找 `Filter` Bean实例。这一点很重要，因为在容器启动之前，容器需要注册 `Filter` 实例。然而， Spring 通常使用 `ContextLoaderListener` 来加载 Spring Bean，这在需要注册 `Filter` 实例之后才会完成。
+
+**问题：DelegatingFilterProxy是如何实现延迟查找的？是因为只要是Spring Bean就能实现延迟，还是DelegatingFilterProxy让FIlter 的Spring Bean实现了延迟查找？**
+> 延迟查找的机制：
+> - `DelegatingFilterProxy` 会在 Servlet 容器启动时被注册为一个 `Filter`，但它并不会立即去查找 Spring 容器中的 `Filter` Bean。
+> - 在请求到达时，`DelegatingFilterProxy` 会通过 Spring 的 `ApplicationContext` 查找 `targetBeanName` 对应的 `Filter` Bean 实例。
+> - 如果 `Filter` Bean 没有被初始化，Spring 会在此时创建和注入该 `Filter` Bean。这就是延迟加载的实现。也就是说，`DelegatingFilterProxy` 并不会在容器启动时就创建 `Filter` 实例，而是等到实际需要使用时才会去查找并创建对应的 `Filter`。
     
-- Spring Security 的过滤器顺序也可以在配置中进行控制，确保它们按正确的顺序执行。
-    
+
 
 ### 3. **DelegatingFilterProxy**
 

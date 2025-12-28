@@ -2,7 +2,7 @@
 
 
 
-## 1.1 springboot官方配置been
+## 1.1 springboot自己项目配置been
 
 @Component衍生
 
