@@ -551,7 +551,7 @@ public void doFilter(ServletRequest request, ServletResponse response, FilterCha
 
 `DelegatingFilterProxy` 的另一个好处是，它允许延迟查找 `Filter` Bean实例。这一点很重要，因为在容器启动之前，容器需要注册 `Filter` 实例。然而， Spring 通常使用 `ContextLoaderListener` 来加载 Spring Bean，这在需要注册 `Filter` 实例之后才会完成。
 
-**问题：DelegatingFilterProxy是如何实现延迟查找的？是因为只要是Spring Bean就能实现延迟，还是DelegatingFilterProxy让FIlter 的Spring Bean实现了延迟查找？**
+**问题：DelegatingFilterProxy是如何实现延迟查找的？是因为只要是Spring Bean就能实现延迟，还是DelegatingFilterProxy让FIlter 的Spring Bean实现了延迟查找？**(还是没搞懂...)
 > 延迟查找的机制：
 > - `DelegatingFilterProxy` 会在 Servlet 容器启动时被注册为一个 `Filter`，但它并不会立即去查找 Spring 容器中的 `Filter` Bean。
 > - 在请求到达时，`DelegatingFilterProxy` 会通过 Spring 的 `ApplicationContext` 查找 `targetBeanName` 对应的 `Filter` Bean 实例。
@@ -559,53 +559,71 @@ public void doFilter(ServletRequest request, ServletResponse response, FilterCha
     
 
 
-### 3. **DelegatingFilterProxy**
+## 3. FilterChainProxy
+Spring Security 的 Servlet 支持包含在 `FilterChainProxy` 中。`FilterChainProxy` 是 Spring Security 提供的一个特殊的 `Filter`，允许通过 [`SecurityFilterChain`](https://springdoc.cn/spring-security/servlet/architecture.html#servlet-securityfilterchain) 委托给许多 `Filter` 实例。由于 `FilterChainProxy` 是一个Bean，它通常被包裹在 [DelegatingFilterProxy](https://springdoc.cn/spring-security/servlet/architecture.html#servlet-delegatingfilterproxy) 中。
 
-- `DelegatingFilterProxy` 是 Spring 提供的一个 `Filter` 实现，它允许在 **Servlet 容器** 的生命周期和 **Spring 的 ApplicationContext** 之间建立桥梁。
+下图显示了 `FilterChainProxy` 的作用。
+![](spring%20security笔记.assets/file-20251228123127210.png)
+## 4. SecurityFilterChain
+[`SecurityFilterChain`](https://docs.spring.io/spring-security/site/docs/current/api/org/springframework/security/web/SecurityFilterChain.html) 被 [FilterChainProxy](https://springdoc.cn/spring-security/servlet/architecture.html#servlet-filterchainproxy) 用来确定当前请求应该调用哪些 Spring Security `Filter` 实例。
+
+下图显示了 `SecurityFilterChain` 的作用。
+![](spring%20security笔记.assets/file-20251228123300950.png)
+
+`SecurityFilterChain` 中的 [Security Filter](https://springdoc.cn/spring-security/servlet/architecture.html#servlet-security-filters) 通常是Bean，但它们是用 `FilterChainProxy` 而不是 [DelegatingFilterProxy](https://springdoc.cn/spring-security/servlet/architecture.html#servlet-delegatingfilterproxy) 注册的。与直接向Servlet容器或 [DelegatingFilterProxy](https://springdoc.cn/spring-security/servlet/architecture.html#servlet-delegatingfilterproxy) 注册相比，`FilterChainProxy` 有很多优势。首先，它为 Spring Security 的所有 Servlet 支持提供了一个起点。由于这个原因，如果你试图对 Spring Security 的 Servlet 支持进行故障诊断，在 `FilterChainProxy` 中添加一个调试点是一个很好的开始。
+
+其次，由于 `FilterChainProxy` 是 Spring Security 使用的核心，它可以执行一些不被视为可有可无的任务。 例如，它清除了 `SecurityContext` 以避免内存泄漏。它还应用Spring Security的 [`HttpFirewall`](https://springdoc.cn/spring-security/servlet/exploits/firewall.html#servlet-httpfirewall) 来保护应用程序免受某些类型的攻击。
+
+此外，它在确定何时应该调用 `SecurityFilterChain` 方面提供了更大的灵活性。在Servlet容器中，`Filter` 实例仅基于URL被调用。 然而，`FilterChainProxy` 可以通过使用 `RequestMatcher` 接口，根据 `HttpServletRequest` 中的任何内容确定调用。
+
+下图显示了多个 `SecurityFilterChain` 实例。
+![](spring%20security笔记.assets/file-20251228123329325.png)
+在 [Multiple SecurityFilterChain](https://springdoc.cn/spring-security/servlet/architecture.html#servlet-multi-securityfilterchain-figure) 图中， `FilterChainProxy` 决定应该使用哪个 `SecurityFilterChain`。只有第一个匹配的 `SecurityFilterChain` 被调用。如果请求的URL是 `/api/messages/`，它首先与 `/api/**` 的 `SecurityFilterChain0` 模式匹配，所以只有 `SecurityFilterChain0` 被调用，尽管它也与 `SecurityFilterChainn` 匹配。如果请求的URL是 `/messages/`，它与 `/api/**` 的 `SecurityFilterChain0` 模式不匹配，所以 `FilterChainProxy` 继续尝试每个 `SecurityFilterChain`。假设没有其他 `SecurityFilterChain` 实例相匹配，则调用 `SecurityFilterChainn`。
+
+请注意，`SecurityFilterChain0` 只配置了三个 security `Filter` 实例。然而，`SecurityFilterChainn` 却配置了四个 security `Filter` 实例。值得注意的是，每个 `SecurityFilterChain` 都可以是唯一的，并且可以单独配置。事实上，如果应用程序希望 Spring Security 忽略某些请求，那么一个 `SecurityFilterChain` 可能会有零个 security `Filter` 实例。
+
+## [5. ](https://springdoc.cn/spring-security/servlet/architecture.html#servlet-security-filters)Security Filter
+Security Filter 是通过 [SecurityFilterChain](https://springdoc.cn/spring-security/servlet/architecture.html#servlet-securityfilterchain) API 插入 [FilterChainProxy](https://springdoc.cn/spring-security/servlet/architecture.html#servlet-filterchainproxy) 中的。
+
+这些 filter 可以用于许多不同的目的，如 [认证](https://springdoc.cn/spring-security/servlet/authentication/index.html)、 [授权](https://springdoc.cn/spring-security/servlet/authorization/index.html)、 [漏洞保护](https://springdoc.cn/spring-security/servlet/exploits/index.html) 等等。filter 是按照特定的顺序执行的，以保证它们在正确的时间被调用，例如，执行认证的 `Filter` 应该在执行授权的 `Filter` 之前被调用。一般来说，没有必要知道 Spring Security 的 `Filter` 的顺序。但是，有些时候知道顺序是有好处的，如果你想知道它们，可以查看 [`FilterOrderRegistration` 代码](https://github.com/spring-projects/spring-security/tree/main/config/src/main/java/org/springframework/security/config/annotation/web/builders/FilterOrderRegistration.java)。
+
+为了解释上面这段话，让我们考虑以下 security 配置：
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            .csrf(Customizer.withDefaults())
+            .authorizeHttpRequests(authorize -> authorize
+                .anyRequest().authenticated()
+            )
+            .httpBasic(Customizer.withDefaults())
+            .formLogin(Customizer.withDefaults());
+        return http.build();
+    }
+
+}
+```
+
+上述配置中的 `Filter` 顺序如下：
+
+|Filter|添加者|
+|---|---|
+|[CsrfFilter](https://springdoc.cn/spring-security/servlet/exploits/csrf.html)|`HttpSecurity#csrf`|
+|[UsernamePasswordAuthenticationFilter](https://springdoc.cn/spring-security/servlet/authentication/passwords/form.html#servlet-authentication-form)|`HttpSecurity#formLogin`|
+|[BasicAuthenticationFilter](https://springdoc.cn/spring-security/servlet/authentication/passwords/basic.html)|`HttpSecurity#httpBasic`|
+|[AuthorizationFilter](https://springdoc.cn/spring-security/servlet/authorization/authorize-http-requests.html)|`HttpSecurity#authorizeHttpRequests`|
+
+1. 首先，调用 `CsrfFilter` 来防止 [CSRF 攻击](https://springdoc.cn/spring-security/servlet/exploits/csrf.html)。
     
-- 它的作用是从 Spring 容器中延迟加载实际的 `Filter` Bean，这使得 `Filter` 可以在 Spring 管理下运行，并且可以通过 Spring 的依赖注入机制进行管理。
+2. 其次，认证 filter 被调用以认证请求。
+    
+3. 第三，调用 `AuthorizationFilter` 来授权该请求。
     
 
-### 4. **FilterChainProxy 与 SecurityFilterChain**
-
-- `FilterChainProxy` 是 Spring Security 中的一个特殊 `Filter`，它通过 `SecurityFilterChain` 来确定当前请求应该执行哪些 Spring Security 过滤器。
-    
-- `SecurityFilterChain` 用来管理多个安全相关的 `Filter`，它根据请求的 URL 和其他条件来动态选择和执行匹配的 `Filter`。例如，某些 `Filter` 可能只对特定路径或请求类型生效。
-    
-
-### 5. **如何添加自定义 Filter**
-
-- 在 Spring Security 中，添加自定义 `Filter` 通常是在 `SecurityFilterChain` 配置中通过 `addFilterBefore()`、`addFilterAfter()` 或 `addFilterAt()` 方法实现的。这些方法允许你将自定义 `Filter` 插入到 Spring Security 的默认过滤链中。
-    
-- 例如，可以添加一个用于处理租户 ID 的 `TenantFilter`，确保在认证后检查租户权限。
-    
-
-### 6. **Filter 注册机制**
-
-- 尽管你可以在 `Filter` 类上使用 `@Component` 注解，使其成为 Spring 管理的 Bean，但这并不会自动将其注册到 **Servlet 容器** 的过滤链中。你需要显式地将其通过 `FilterRegistrationBean` 或 `SecurityFilterChain` 注册到 Spring Security 的过滤链中。
-    
-- 使用 `FilterRegistrationBean` 可以控制 `Filter` 的 URL 映射、顺序等，避免 `Filter` 被重复注册。
-    
-
-### 7. **处理异常与请求缓存**
-
-- **ExceptionTranslationFilter**：它负责将 `AccessDeniedException` 和 `AuthenticationException` 转换为相应的 HTTP 响应（如 401 或 403 错误），并引导用户进行认证或拒绝访问。
-    
-- **RequestCache**：用于保存用户未认证时请求的 URL，用户成功认证后可以重新发起该请求。这对于处理认证前访问受保护资源的情况非常有用。
-    
-
-### 8. **Spring Security 的日志机制**
-
-- Spring Security 提供了详尽的日志记录功能，特别是在调试认证和授权相关的问题时。你可以通过调整日志级别来记录详细的 `Filter` 调用和错误信息，帮助你更清晰地了解请求的安全处理过程。
-    
-
-### 总结：
-
-- **Filter** 在 Spring Security 中扮演着重要的角色，它们帮助你在不同的请求处理阶段执行安全检查（如认证、授权等）。
-    
-- Spring 使用 **FilterChainProxy** 和 **SecurityFilterChain** 来灵活地管理多个安全 `Filter`，并且根据请求的不同条件来选择合适的 `Filter` 执行。
-    
-- 对于自定义 `Filter`，你需要手动将其注册到 Spring Security 的过滤链中，通常是通过 `FilterRegistrationBean` 或在 `SecurityFilterChain` 中配置。
-    
-
-如果你是初学者，可以从理解 **Filter** 的工作机制开始，逐步学习如何在 Spring Security 中自定义和配置过滤器，控制请求的安全处理流程。
+| note |                                                                                                                                                          |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|      | 可能还有其他的 `Filter` 实例没有在上面列出。如果你想看到为某个特定请求调用的 filter 列表，你可以 [打印出它们](https://springdoc.cn/spring-security/servlet/architecture.html#servlet-print-filters)。 |
