@@ -8,7 +8,7 @@
 sudo apt install build-essential
 ```
 安装openjdk编译依赖库（有些没了
-![](../../Pasted%20image%2020260108175835.png)
+
 
 安装"Bootstrap JDK"
 `sudo apt install openjdk-11-jdk`
@@ -19,5 +19,5 @@ sudo apt install build-essential
 ## 2.1 jvm运行时数据区
 
 
-![](../../Pasted%20image%2020260109153606.png)
+
 
