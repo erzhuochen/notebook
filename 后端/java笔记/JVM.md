@@ -125,4 +125,4 @@ Java虚拟机的启动是通过引导类加载器（bootstrap class loader）创
 - 市场定位与HotSpot接近，服务器端、桌面应用、嵌入式等多用途VM
 
 
-### 
+### 内存结构概述
