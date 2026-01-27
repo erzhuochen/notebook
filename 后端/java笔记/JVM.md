@@ -53,7 +53,7 @@ istore_2
 iload_1
 iload_2
 iadd // 常量2、3出栈，执行相加
-istore_0 // 结果5入栈
+istore_3 // 结果5入栈
 ```
 - **基于寄存器架构**的特点：
 	- 典型的应用是x86的二进制指令集，比如传统的pc以及Android的Davlik虚拟机
@@ -69,3 +69,60 @@ add eax,3 // 使eax寄存器的值增加3
 > 
 > 答：指令中不包含地址，只有操作数
 
+总结：
+由于跨平台性的设计，Java的指令都是根据栈来设计的。不同平台CPU架构不同，所以不能设计为基于寄存器的。优点是**跨平台、指令集小，编译器容易实现**，缺点是**性能下降，实现同样的功能需要更多的指令**。
+
+
+### JVM的生命周期
+
+**虚拟机的启动**：
+Java虚拟机的启动是通过引导类加载器（bootstrap class loader）创建一个初始类（initial class）来完成的，这个类是由虚拟机的具体实现指定的。
+
+**虚拟机的执行**：
+- 一个运行中的Java虚拟机有着一个清晰的任务：执行Java程序
+- 程序开始执行时它才执行，程序结束时它就停止
+- ==执行一个所谓的Java程序的时候，真真正正在执行的是一个叫作Java虚拟机的进程==
+
+**虚拟机的退出**：
+有如下几种情况：
+- 程序正常执行结束
+- 程序在执行过程中遇到了异常或错误而异常终止
+- 由于操作系统出现错误而导致Java虚拟机进程终止
+- 某线程调用Runtime类或System类的exit方法，或Runtime类的halt方法，并且Java安全管理器也允许这次exit或halt操作
+- 除此之外，JNI（Java Native Interface）规范描述了用JNI Invocation API来加载或卸载Java虚拟机时，Java虚拟机的退出情况
+
+### JVM的发展历程
+
+**Sun Classic VM**：
+- 世界上第一款商用Java虚拟机
+- 内部只提供解释器（效率差）
+- 如果使用JIT编译器，就需要进行外挂。但是一旦使用了JIT编译器，JIT就会接管虚拟机的执行系统。解释器就不再工作。解释器和编译器不能配合工作。
+- hotspot内置了此虚拟机
+
+**Exact VM**：
+- Exact Memory Management: 准确式内存管理
+	- 也可以叫Non-Conservative/Accurate Memory Management
+	- 虚拟机可以知道内存中某个位置的数据具体是什么类型
+- 具备现代高性能虚拟机的雏形
+	- 热点探测
+	- 编译器与解释器混合工作模式
+- 只在Solaris平台短暂使用，其他平台上还是classic vm
+
+**Hotspot VM**:
+- 从服务器、桌面到移动端、嵌入式都有应用
+- 名称中的HotSpot指的就是它的热点代码探测技术。
+
+**JRockit**：
+- 专注于服务端应用
+	- 不太关注程序启动速度，全部代码都靠即时编译器编译后执行
+- JRockit JVM是世界上最快的JVM
+- 优势：全面的Java运行时解决方案组合
+	- JRockit面向延迟敏感型应用的解决方案JRockit Real Time提供以毫秒或微秒级的JVM响应时间，适合财务、军事指挥、电信网络的需要
+	- MissionControl服务套件，它是一组以极低的开销来监控、管理和分析生产环境中的应用程序的工具
+
+**J9**：
+- 全称：IBM Technology for Java Virtual Machine，简称IT4J，内部称号：J9
+- 市场定位与HotSpot接近，服务器端、桌面应用、嵌入式等多用途VM
+
+
+### 
