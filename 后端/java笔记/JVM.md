@@ -158,6 +158,7 @@ Java虚拟机的启动是通过引导类加载器（bootstrap class loader）创
 ![](JVM.assets/file-20260128100833835.png)
 
 > Q: 图中的“类变量”和”实例变量“的区别?
+> 反思：出现这个问题的主要原因是把类/实例变量 和 类/实例对象 混一起了。类对象是在Loading阶段创建的。
 > A: 
 > - **类变量 (Class Variable)**：
 >    
