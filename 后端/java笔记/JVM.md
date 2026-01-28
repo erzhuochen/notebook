@@ -157,7 +157,7 @@ Java虚拟机的启动是通过引导类加载器（bootstrap class loader）创
 ### 类的加载子系统过程二：Linking
 ![](JVM.assets/file-20260128100833835.png)
 
-> Q: 图中的“类变量”和”实例变量“的区别?
+> Q: “类变量”和”实例变量“的区别?
 > 反思：出现这个问题的主要原因是把类/实例变量 和 类/实例对象 混一起了。类对象是在Loading阶段创建的。
 > A: 
 > - **类变量 (Class Variable)**：
@@ -176,6 +176,44 @@ Java虚拟机的启动是通过引导类加载器（bootstrap class loader）创
 >        
 >    - **特性**：每当你 `new` 一个新对象，系统就会为这个对象分配一个新的实例变量副本。对象之间互不影响。
 
+### 类的加载子系统过程三：Intialization
+- **初始化阶段就是执行类构造器方法`<clinit>()`的过程。**
+- 此方法不需定义，自动生成，是javac编译器自动收集类中的**所有类变量的赋值动作和静态代码块中的语句**合并而来。（如果没有类变量和静态代码块，就不会生成`clinit()`方法）
+- 构造器方法中指令按语句在源文件中出现的顺序执行
+- **`<clinit>()`不同于类的构造器**（关联：构造器是虚拟机视角下的`<init>()`）
+- 若该类具有父类，JVM会保证子类的`<clinit>()`执行前，父类的`<clinit>()`已经执行完毕
+- 虚拟机必须保证一个类的`<clinit>()`方法在多线程下被同步加锁
+
+总结一下：上述总共涉及.class文件中的两个方法（参考下图）：
+- `clinit()`：自动生成，按顺序执行类变量的赋值动作和静态代码块中的语句
+- `init()`：类的构造器方法在.class文件中的名字
+![](JVM.assets/file-20260128162914618.png)
+
+```java
+// 例子
+// 在Linking 阶段，初始化类变量num
+// 在Intialization阶段，运行clinit()方法按顺序执行赋值动作
+public class ClassInitTest {  
+    static {  
+        num = 2;  
+        // System.out.println(num); 会报错，不能前向引用
+    }    
+    private static int num = 10;  
+  
+    public static void main(String[] args) {  
+        System.out.println(ClassInitTest.num);    
+    }
+}
+```
+
+### 类的加载器的分类
+- JVM支持两种类型的类加载器，分别为**引导类加载器**（Bootstrap ClassLoader）和**自定义类加载器**（User-Defined ClassLoader）
+- 从概念上来讲，自定义类加载器一般指的是程序中由开发人员自定义的一类类加载器，但是Java虚拟机规范却没有这么定义，而是**将所有派生于抽象类ClassLoader的类加载器都划分为自定义类加载器**
+- 无论类加载器的类型如何划分，在程序中我们最常见的类加载器始终只有3个，如下所示：
+	- Bootstrap Class Loader：引导类加载器
+	- Extension Class Loader：自定义类加载器
+	- System Class Loader：自定义类加载器
+![](JVM.assets/file-20260128164042431.png)
 ## 3. 运行时数据区概述及线程
 
 ## 4. 程序计数器
