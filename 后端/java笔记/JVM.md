@@ -243,7 +243,9 @@ public class ClassLoaderTest {
 
 #### 虚拟机自带的加载器
 - 启动类加载器（引导类加载器，Bootstrap ClassLoader）
-	- 这个类加载使用
+	- 这个类加载使用C/C++语言实现的，嵌套在JVM内部
+	- 它用来加载Java的核心库（JAVA_HOME/jre/lib/rt.gar、resources.jar或sun.boot.class.path路径下的内容），用于提供JVM自身需要的类
+	- 并不继承自java.lang.ClassLoader，没有父加载器
 
 
 
