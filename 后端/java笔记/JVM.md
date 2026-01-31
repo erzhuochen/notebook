@@ -251,9 +251,43 @@ public class ClassLoaderTest {
 - **扩展类加载器**（Extension ClassLoader）
 	- Java语言编写，由sun.misc.Launcher$ExtClassLoader实现
 	- 派生于ClassLoader类
-	- 从java.ext.dirs系统属性所指定的目录中加载类库，或从JDK的安装目录的jre/lib/ext子目录（扩展目录）下加载类库。如果用户创建的JAR放在此目录下，也会自动由扩展类加载器加载
+	- 父类加载器为启动类加载器
+	- 从java.ext.dirs系统属性所指定的目录中加载类库，或从JDK的安装目录的jre/lib/ext子目录（扩展目录）下加载类库。**如果用户创建的JAR放在此目录下，也会自动由扩展类加载器加载**
+- **应用程序类加载器**（系统类加载器，AppClassLoader）
+	- java语言编写，由sun.misc.Launcher$AppClassLoader实现
+	- 派生于ClassLoader类
+	- 父类加载器为扩展类加载器
+	- 它负责加载环境变量classpath或系统属性 java.class.path 指定路径下的类库 
+	- 该类加载是程序中默认的类加载器，一般来说，Java应用的类都是由它来完成加载
+	- 通过ClassLoader#getSytemClassLoader()方法可以获取到该类加载器
 
-
+```java
+public class ClassLoaderTest1 {  
+    public static void main(String[] args) {  
+        System.out.println("******************启动类加载器******************");  
+        // 获取BootstrapClassLoader能够加载的api的路径  
+        URL[] urLs = sun.misc.Launcher.getBootstrapClassPath().getURLs();  
+        for(URL element: urLs)  
+            System.out.println(element.toExternalForm());  
+        System.out.println("******************扩展类加载器******************");  
+        String extDirs = System.getProperty("java.ext.dirs");  
+        for(String path: extDirs.split(";")){  
+            System.out.println(path);        }    }  
+}
+// 输出结果
+******************启动类加载器******************
+file:/C:/Program%20Files/Java/jdk1.8.0_201/jre/lib/resources.jar
+file:/C:/Program%20Files/Java/jdk1.8.0_201/jre/lib/rt.jar
+file:/C:/Program%20Files/Java/jdk1.8.0_201/jre/lib/sunrsasign.jar
+file:/C:/Program%20Files/Java/jdk1.8.0_201/jre/lib/jsse.jar
+file:/C:/Program%20Files/Java/jdk1.8.0_201/jre/lib/jce.jar
+file:/C:/Program%20Files/Java/jdk1.8.0_201/jre/lib/charsets.jar
+file:/C:/Program%20Files/Java/jdk1.8.0_201/jre/lib/jfr.jar
+file:/C:/Program%20Files/Java/jdk1.8.0_201/jre/classes
+******************扩展类加载器******************
+C:\Program Files\Java\jdk1.8.0_201\jre\lib\ext
+C:\WINDOWS\Sun\Java\lib\ext
+```
 
 ## 3. 运行时数据区概述及线程
 
