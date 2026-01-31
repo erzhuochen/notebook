@@ -260,6 +260,12 @@ public class ClassLoaderTest {
 	- 它负责加载环境变量classpath或系统属性 java.class.path 指定路径下的类库 
 	- 该类加载是程序中默认的类加载器，一般来说，Java应用的类都是由它来完成加载
 	- 通过ClassLoader#getSytemClassLoader()方法可以获取到该类加载器
+- **用户自定义加载器**
+	- 作用：
+		- 隔离加载类
+		- 修改类加载的方式
+		- 扩展加载源
+		- 防止源码泄漏
 
 ```java
 public class ClassLoaderTest1 {  
@@ -288,6 +294,39 @@ file:/C:/Program%20Files/Java/jdk1.8.0_201/jre/classes
 C:\Program Files\Java\jdk1.8.0_201\jre\lib\ext
 C:\WINDOWS\Sun\Java\lib\ext
 ```
+
+### 关于ClassLoader
+ClassLoader类，它是一个抽象类，其后所有的类加载器都继承自ClassLoader（不包括启动类加载器）
+
+| 方法名称                                                 | 描述                                                     |
+| ---------------------------------------------------- | ------------------------------------------------------ |
+| getParent()                                          | 返回该类加载器的超类加载器                                          |
+| loadClass(String name)                               | 加载名称为name的类，返回结果为java.lang.Class类的实例                   |
+| findClass(String name)                               | 查找名称为name的类，返回结果为java.lang.Class类的实例。常与defineClass搭配使用 |
+| findLoadedClass(String name)                         | 查找名称为name的已经被加载过的类，返回结果为java.lang.Class类的实例            |
+| defineClass(String name, byte[] b, int off, int len) | 把字节数组b中的内容转换为一个Java类，返回结果为java.lang.Class类的实例          |
+| resolveClass(Class\<?\> c)                           | 连续指定的一个Java类                                           |
+![](JVM.assets/file-20260131173258962.png)
+**sun.misc.Launcher 它是一个java虚拟机的入口应用**
+	JVM本身（即 `java.exe` 或 linux 下的 `java` 命令）大部分是用 **C++** 写的。
+- **在 Launcher 运行之前（C++ 阶段）**： 当你输入 `java MyProgram` 时，操作系统调用的是 C++ 代码。这时候，JVM 加载了核心库，初始化了堆内存，启动了垃圾回收器，并且创建了**启动类加载器 (Bootstrap ClassLoader)**。但此时，JVM 还只是一个空的引擎，它还不知道你的 `MyProgram` 在哪，也不知道怎么去加载它。
+    
+- **Launcher 登场（交接棒）**： C++ 代码做完底层硬件和内存的准备后，需要把控制权交给 Java 代码。它调用的**第一个 Java 类**就是 `sun.misc.Launcher`。
+    
+    **这就是“入口”的含义**：它是 JVM 启动后运行的**第一行 Java 代码**。在它之前全是 C++，在它之后才是你的 `public static void main`。
+    
+> Q: sun.misc.Launcher 和图中类的关系
+> A: `ExtClassLoader`和`AppClassLoader`是`sun.misc.Launcher`类的静态内部类
+
+**获取ClassLoader的途径**
+
+|                           |                                                |
+| ------------------------- | ---------------------------------------------- |
+| 方式一：获取当前类的ClassLoader     | clazz.getClassLoader                           |
+| 方式二：获取当前线程上下文的ClassLoader | Thread.currentThread().getContextClassLoader() |
+| 方式三：获取系统的ClassLoader      | ClassLoader.getSystemClassLoader()             |
+| 方式四：获取调用者的ClassLoader     | DriverManager.getCallerClassLoader()           |
+
 
 ## 3. 运行时数据区概述及线程
 
