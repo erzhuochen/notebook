@@ -276,7 +276,7 @@ public class ClassLoaderTest1 {
 }
 // 输出结果
 ******************启动类加载器******************
-file:/C:/Program%20Files/Java/jdk1.8.0_201/jre/lib/resources.jar
+file:/C:/Program%20Files/Java/jdk1.8.0_201/jr5e/lib/resources.jar
 file:/C:/Program%20Files/Java/jdk1.8.0_201/jre/lib/rt.jar
 file:/C:/Program%20Files/Java/jdk1.8.0_201/jre/lib/sunrsasign.jar
 file:/C:/Program%20Files/Java/jdk1.8.0_201/jre/lib/jsse.jar
