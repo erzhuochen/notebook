@@ -242,10 +242,16 @@ public class ClassLoaderTest {
 ```
 
 #### 虚拟机自带的加载器
-- 启动类加载器（引导类加载器，Bootstrap ClassLoader）
+- **启动类加载器**（引导类加载器，Bootstrap ClassLoader）
 	- 这个类加载使用C/C++语言实现的，嵌套在JVM内部
-	- 它用来加载Java的核心库（JAVA_HOME/jre/lib/rt.gar、resources.jar或sun.boot.class.path路径下的内容），用于提供JVM自身需要的类
+	- 它用来加载Java的核心库（JAVA_HOME/jre/lib/rt.jar、resources.jar或sun.boot.class.path路径下的内容），用于提供JVM自身需要的类
 	- 并不继承自java.lang.ClassLoader，没有父加载器
+	- 加载**扩展类和应用程序类加载器**，并指定为他们的父类加载器
+	- 出于安全考虑，Bootstrap启动类加载器只加载包名为java、javax、sun等开头的类
+- **扩展类加载器**（Extension ClassLoader）
+	- Java语言编写，由sun.misc.Launcher$ExtClassLoader实现
+	- 派生于ClassLoader类
+	- 从java.ext.dirs系统属性所指定的目录中加载类库，或从JDK的安装目录的jre/lib/ext子目录（扩展目录）下加载类库。如果用户创建的JAR放在此目录下，也会自动由扩展类加载器加载
 
 
 
