@@ -326,7 +326,31 @@ ClassLoader类，它是一个抽象类，其后所有的类加载器都继承自
 | 方式二：获取当前线程上下文的ClassLoader | Thread.currentThread().getContextClassLoader() |
 | 方式三：获取系统的ClassLoader      | ClassLoader.getSystemClassLoader()             |
 | 方式四：获取调用者的ClassLoader     | DriverManager.getCallerClassLoader()           |
-
+```java
+public class ClassLoaderTest2 {  
+    public static void main(String[] args) {  
+        try {  
+            // 1. 获取 String 类的类加载器  
+            ClassLoader classLoader = Class.forName("java.lang.String").getClassLoader();  
+            System.out.println(classLoader); // 输出: null，表示引导类加载器  
+  
+            // 2. 获取当前线程的上下文类加载器  
+            ClassLoader classLoader1 = Thread.currentThread().getContextClassLoader();  
+            System.out.println(classLoader1); // 输出: sun.misc.Launcher$AppClassLoader@18b4aac2 应用类加载器  
+  
+            // 3. 获取系统类加载器及其父类加载器  
+            ClassLoader systemClassLoader = ClassLoader.getSystemClassLoader();  
+            System.out.println(systemClassLoader); // 输出: sun.misc.Launcher$AppClassLoader@18b4aac2 应用类加载器  
+            ClassLoader parent = systemClassLoader.getParent();  
+            System.out.println(parent); // 输出: sun.misc.Launcher$ExtClassLoader@1b6d3586 扩展类加载器  
+            ClassLoader grandParent = parent.getParent();  
+            System.out.println(grandParent); // 输出: null，表示引导类加载器  
+        } catch (ClassNotFoundException e) {  
+            e.printStackTrace();  
+        }  
+    }  
+}
+```
 
 ## 3. 运行时数据区概述及线程
 
