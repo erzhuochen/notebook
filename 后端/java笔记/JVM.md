@@ -651,8 +651,7 @@ public class StackTest {
 3. 否则，按照继承关系从下往上依次对`C`的各个父类进行第2步的搜索和验证过程
 4. 如果始终没有找到合适的方法，则抛出`java.lang.AbstractMethodError`异常
 
-**IllegalAccessError介绍**
-程序试图访问或修改一个属性或调用一个方法，这个属性或方法，
+
 
 ## 4. 程序计数器
 
