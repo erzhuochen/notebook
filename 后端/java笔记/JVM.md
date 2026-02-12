@@ -431,6 +431,16 @@ PC寄存器用来存储指向下一条指令的地址，也即将要执行的指
 它是唯一一个在Java虚拟机规范中没有规定任何OutOfMemoryError情况的区域
 ![1000](JVM.assets/file-20260202174602059.png)
 ### 虚拟机栈
+
+#### 0）常用调优工具
+- JDK命令行(jinfo, jstat, javap)
+- Eclipse:Memory Analyzer Tool
+- Jconsole
+- VisualVM
+- Jprofiler
+- Java Filght Recorder
+- GCViewer
+- GC Easy
 #### 1）内存中的栈与堆
 **栈是运行时的单位，而堆是存储的单位**。即栈解决程序的运行问题，即程序如何执行，或者说如何处理数据。堆解决的是数据存储问题，即数据怎么放、放在哪儿。
 
@@ -744,6 +754,43 @@ public class StackTest {
 - 可以设置参数:-XX:MaxTenuringThreshold=\<N>进行设置。
 7. 在养老区，相对悠闲。当养老区内存不足时，再次触发GC:Major GC，进行养老区的内存清理。
 8. 若养老区执行了Major GC之后发现依然无法进行对象的保存，就会产生OOM异常(java.lang.OutOfMemoryError: Java heap space)
+
+![1000](JVM.assets/file-20260212163105570.png)
+
+
+##### Minor GC, Major GC, Full GC
+###### 基本介绍
+JVM在进行GC时，并非每次都对上面三个内存区域（新生代，老年代，元空间）一起回收的，大部分回收的都是指新生代。
+针对HotSpot VM的实现，它里面的GC按照回收区域又分为两大种类型：一种是部分收集（Partial GC），一种是整堆收集（Full GC）
+
+- 部分收集：不是完整收集整个Java堆的垃圾收集。其中又分为：
+	- 新生代收集（Minor GC/Young GC）：只是新生代（Eden，S0, S1）的垃圾收集
+	- 老年代收集（Major GC/Old GC）：只是老年代的垃圾收集
+		- 目前，只有CMS GC会有单独收集老年代的行为
+		- 注意，**很多时候Major GC会和Full GC混淆使用**，需要具体分辨是老年代回收还是整堆回收
+	- 混合收集（Mixed GC）：收集整个新生代以及部分老年代的垃圾收集
+		- 目前，只有G1 GC会有这种行为
+- 整堆回收（Full GC）：收集整个java堆和方法区的垃圾收集
+
+###### 年轻代GC（Minor GC）触发机制
+- 当年轻代空间不足时，就会触发Minor GC，这里的年轻代满指的是Eden代满，Survivor满不会引发GC。
+- Minor GC会引发STW，暂停其他用户的线程，等垃圾回收结束，用户线程才恢复运行
+
+###### 老年代GC（Major GC/Full GC）触发机制
+- 指发生在老年代的GC，对象从老年代消失时，我们说“Major GC”或“Full GC”发生了
+- 出现了Major GC，经常会伴随至少一次的Minor GC（但非绝对，在Parallel Scavenge收集器的收集策略里就有直接进行Magor GC的策略选择过程）
+	- 也就是老年代空间不足时，会先尝试触发Minor GC。如果之后空间还不足，则触发Major GC
+- Major GC的速度一般会比Minor GC慢10倍以上，STW的时间更长
+- 如果Major GC后，内存还不足，就报OOM了
+
+###### Full GC触发机制（后面细讲）
+触发情况五种：
+1. 调用System.gc()时，系统建议执行Full GC，但是不必然执行
+2. 老年代空间不足
+3. 方法区空间不足
+4. 通过Minor GC后进入老年代的平均大小大于老年代的可用内存
+5. 由Eden区、survivor space0区向1区复制时，对象大小大于To Space可用内存，则把该对象转存到老年代，且老年代的可用内存小于该对象大小
+**Full GC是开发或调优中尽量要避免的。这样暂停时间会短一些**。
 ## 4. 程序计数器
 
 ## 5. 虚拟机栈
