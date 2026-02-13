@@ -854,6 +854,17 @@ JDK7之后，规则变为**只要老年代的连续空间大于新生代对象�
 在JIT阶段，如果经过逃逸分析，发现一个对象不会被外界访问的话，那么经过JIT优化，就会把这个对象拆解成若干个其中包含的若干个成员变量来代替。这个过程就是**标量替换**。
 好处：不用创建对象，就不需要分配堆内存了。大大减少堆内存的占用。
 设置标量替换： -XX:+EliminateAllocations
+`-server -Xmx100m -Xms100m -XX:+DoEscapeAnalysis -XX:+PrintGC -XX:+EliminateAllocations`
+这里使用参数如下：
+- server：启动Server模式，因为在Server模式下，才可以启用逃逸分析
+- -XX:+DoEscapeAnalysis：启用逃逸分析
+- -XX:+EliminateAllocations：开启标量替换
+
+#### 16）方法区
+
+
+
+
 
 ## 4. 程序计数器
 
