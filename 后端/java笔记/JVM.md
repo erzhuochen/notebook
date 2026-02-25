@@ -983,7 +983,29 @@ public class SimpleClass{
 **StringTable为什么要调整？**
 jdk7中将StringTable放到了堆空间中。因为永久代的回收效率很低，在full gc的时候才会触发。而full gc是老年代的空间不足、永久代不足时才会触发。这就导致StringTable回收效率不高。而我们开发中会有大量的字符串被创建，回收效率低，导致永久代内存不足。放到堆里，能及时回收内存。
 
-
+##### 如何证明静态变量存在哪？
+```java
+public class StaticObjTest {  
+    static class Test {  
+        static ObjectHolder staticObj = new ObjectHolder();  // staricObj随着Test的类型信息存放在方法区
+        ObjectHolder instanceObj = new ObjectHolder();  //instanceObj随着Test的对象实例存放在Java堆
+  
+        void foo() {  
+            ObjectHolder localObj = new ObjectHolder();  //localObject则是存放在foo（）方法栈的局部变量表中
+            System.out.println("done");  
+        }  
+    }  
+  
+    private static class ObjectHolder {  
+    }  
+  
+    public static void main(String[] args) {  
+        Test test = new StaticObjTest.Test();  
+        test.foo();  
+    }  
+}
+// 三个对象的数据在内存中的地址都落在Eden区范围内，所以结论：只要是对象实例必然会在Java堆中分配
+```
 
 ## 4. 程序计数器
 
