@@ -1034,9 +1034,38 @@ public class StaticObjTest {
 ![1000](JVM.assets/file-20260301143945764.jpg)
 
 ### 对象的内存布局
+```java
+public class CustomerTest {  
+    public static void main(String[] args) {  
+        Customer cust = new Customer();  
+    }  
+}
+```
+
+```java
+public class Customer{  
+    int id = 1001;  
+    String name;  
+    Account acct;  
+  
+    {  
+        name = "匿名客户";  
+    }  
+    public Customer(){  
+        acct = new Account();  
+    }  
+  
+}  
+class Account{  
+  
+}
+```
+![](JVM.assets/file-20260301160513458.png)
 
 ### 对象的访问定位
 
+**JVM是如何通过栈帧中的对象引用访问到其内部的对象实例的呢？**
+把堆中对象实例的地址赋给栈帧中的对象引用
 
 ## 11. 直接内存
 
