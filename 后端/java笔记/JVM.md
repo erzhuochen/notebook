@@ -700,6 +700,7 @@ public class StackTest {
 
 ## 8. 堆
 ##### 基本介绍
+- 这个名字和数据结构中的“堆”没有关联，但JVM中的堆使用了数据结构的堆来存储
 - 一个JVM实例只存在一个堆内存，堆也是Java内存管理的核心区域
 - Java堆区在JVM启动的时候即被创建，其空间大小也就确定了。是JVM管理的最大一块内存空间
 	- 堆内存大小是可以调节的
@@ -1188,8 +1189,14 @@ HotSpot采用解释器与即使编译器并存的架构。
 
 ### String的基本特性
 - String：字符串
-	- String s1 = "hello"; // 字面量的定义方式
-	- String s2 = new String("hello"); // 创建类的定义方式
+	- String s1 = "hello"; // 字面量的定义方式，存储在字符串常量池，字符串常量池在堆中
+		- **0或1个对象**:可能创建0个（已存在时）或1个（不存在时）对象
+		- **在常量池中**：对象在常量池中
+		- **可能共享**：相同字面量共享同一个对象
+	- String s2 = new String("hello"); // 创建类的定义方式，存储在堆空间
+		- **1或2个对象**：一定创建1个堆对象 + 可能创建1个常量池对象（如果常量池不存在该字面量）
+		- **堆中对象**：s2指向的是堆中新创建的对象
+		- **不共享**：每次都创建新的堆对象
 - String被声明为final，不可被继承
 - String实现了Serializable接口：表示字符串是支持序列化的。实现了Comparable接口：表示String可以比较大小
 - jdk1.9后，String不再使用char[]，改成了使用byte[]加上编码标记，节省了一些空间
@@ -1243,7 +1250,7 @@ public class StringExer {
     String str = new String("good");  
     char[] ch = {'t', 'e', 's', 't'};  
   
-    public void change(String str, char ch[]) {  
+    public void change(String str, char ch[]) {  // java是值传递
         str = "test ok";  
         ch[0] = 'b';  
     }  
@@ -1258,15 +1265,23 @@ public class StringExer {
 }
 ```
 
+- **字符串常量池是不会存储相同内容的字符串的**。
 
-
-
-
-
-
+- String的String Pool是一个固定大小的Hashtable，默认值大小长度是60013(jdk8)。 如果放进String Pool的String非常多，就会造成Hash冲突严重，从而导致链表很长，而链表长了后直接会造成的影响就是当调用String.intern时性能会大幅下降
+- 使用`-XX:StringTableSize`可设置StringTable的长度
+![435](JVM.assets/file-20260303162504719.png)
 ### String的内存分配
+- 在java语言中有8种基本数据类型和一种比较特殊的类型String。这些类型为了使它们在运行过程中速度更快、更节省内存，都提供了一种**常量池的概念**。
+- 常量池就类似一个Java系统级别提供的缓存。8种基本数据类型的常量池都是系统协调的，**String类型的常量池比较特殊**。它的主要使用方法有两种。
+	- 直接使用双引号声明出来的String对象直接存储在常量池中。
+	- 如果不是用双引号声明的String对象，可以使用String提供的intern()方法。
+- java 7之后，字符串常量池被放到了堆中
 
 ### String的基本操作
+
+
+
+
 
 ### 字符串拼接操作
 

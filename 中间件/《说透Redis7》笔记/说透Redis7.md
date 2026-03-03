@@ -227,30 +227,43 @@ typedef struct dictEntry {
         void *val;     // 当value是一个非数字类型的值时，使用该指针
         uint64_t u64; // 当value值是一个无符号整数时，使用u64字段进行存储
         int64_t s64;  // 当value值是一个有符号整数时，使用s64字段进行存储
-        double d;     // 当value值是一个浮点数时，使用d字段进行存储
     } v;
-    struct dictEntry *next; // 指向下一个节点的指针
-    void *metadata[];  // 额外的空间，这个跟Redis Cluster相关，后面再说
+    struct dictEntry *next; // 指向下一个节点的指针，形成链表
 } dictEntry;
 ```
 
-```c
-struct dict {
-    // 当前dict实例使用的一些特殊函数集合，通过这些函数可以改变当前dict的行为
-    dictType *type;
-    // 真正存储数据的hashtable，其中一个是在rehash的时候使用，实现渐进式的rehash
-    dictEntry **ht_table[2];
-    // 每个哈希table里面存了多少个元素
-    unsigned long ht_used[2];
-    // 渐进式rehash现在处理的哈希槽索引值
-    long rehashidx; 
-    // 用来暂停渐进式rehash的开关
-    int16_t pauserehash;
-    // 记录两个哈希table的长度，实际是是记录2的n次方中的 n 这个值
-    signed char ht_size_exp[2]; 
-};
+```c++
+typedef struct dictht {
+	// 哈希表数组
+	dictEntry **table;
+	
+	// 哈希表大小
+	unsigned long size;
+	
+	// 哈希表大小掩码，用于计算索引值，总是等于size-1
+	unsigned long sizemask;
+	
+	// 该哈希表已有节点的数量
+	unsigned long used;
+}dictht;
 ```
 
+```c
+typedef struct dict {
+    // 类型特定函数
+    dictType *type;
+    
+    // 私有数据
+    void *privdata;
+    
+    // 哈希表
+    dictht ht[2];
+    
+    // rehash 索引。当rehash不进行时，值为-1
+    int rehashidx; 
+} dict;
+```
+![](说透Redis7.assets/file-20260303165032804.png)
 
 
 ```c
