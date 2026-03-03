@@ -1191,6 +1191,78 @@ HotSpot采用解释器与即使编译器并存的架构。
 	- String s1 = "hello"; // 字面量的定义方式
 	- String s2 = new String("hello"); // 创建类的定义方式
 - String被声明为final，不可被继承
+- String实现了Serializable接口：表示字符串是支持序列化的。实现了Comparable接口：表示String可以比较大小
+- jdk1.9后，String不再使用char[]，改成了使用byte[]加上编码标记，节省了一些空间
+
+- String：代表不可变的字符序列。简称：**不可变性**。
+	- 当对字符串重新赋值时，需要重新指定内存区域赋值，不能使用原有的value进行赋值。
+	- 当对现有的字符串进行拼接操作时，也需要重新指定内存区域赋值，不能使用原有的value进行赋值。
+	- 当调用String的replace()方法修改字符或字符串时，也需要重新指定内存区域赋值，不能使用原有的value进行赋值
+- 通过字面量的方式（区别于new）给一个字符串赋值，此时的字符串值声明在字符串常量池中。
+```java
+public class StringTest1 {  
+    @Test  
+    public void test1() {  
+        String s1 = "abc";//字面量定义的方式，"abc"存储在字符串常量池中  
+        String s2 = "abc";  
+  
+        System.out.println(s1 == s2); // true  
+  
+        s1 = "hello";  
+  
+        System.out.println(s1 == s2);// false  
+  
+        System.out.println(s1);//hello  
+        System.out.println(s2);//abc  
+  
+    }  
+  
+    @Test  
+    public void test2() {  
+        String s1 = "abc";  
+        String s2 = "abc";  
+        s2 += "def";  
+        System.out.println(s1 == s2);// false  
+        System.out.println(s2);//abcdef  
+        System.out.println(s1);//abc  
+    }  
+  
+    @Test  
+    public void test3() {  
+        String s1 = "abc";  
+        String s2 = s1.replace('a', 'm');  
+        System.out.println(s1 == s2);//false  
+        System.out.println(s1);//abc  
+        System.out.println(s2);//mbc  
+    }  
+}
+```
+
+```java
+public class StringExer {  
+    String str = new String("good");  
+    char[] ch = {'t', 'e', 's', 't'};  
+  
+    public void change(String str, char ch[]) {  
+        str = "test ok";  
+        ch[0] = 'b';  
+    }  
+  
+    public static void main(String[] args) {  
+        StringExer ex = new StringExer();  
+        ex.change(ex.str, ex.ch);  
+        System.out.println(ex.str);//good，change修改了引用指向的值
+        System.out.println(ex.ch);//best，change修改了引用指向的地址中的值
+    }  
+  
+}
+```
+
+
+
+
+
+
 
 ### String的内存分配
 
