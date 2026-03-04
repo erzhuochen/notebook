@@ -1285,6 +1285,9 @@ public class StringExer {
 2. 常量池中不会存在相同内容的常量
 3. 只要其中有一个是变量，结果就在堆中（指堆中不是常量池的区域）。变量拼接的原理是StringBuilder
 4. 如果拼接的结果调用intern()方法，则主动将常量池中还没有的字符串对象放入池中，并返回此对象地址
+
+**一些例子**：
+![799](JVM.assets/file-20260304133241415.png)
 ```java
 public class StringTest5 {  
     @Test  
@@ -1331,6 +1334,7 @@ public class StringTest5 {
         String s2 = "b";  
         String s3 = "ab";  
         /*  
+        （相关字节码见上图）
 	        如下的s1 + s2 的执行细节：(变量s是我临时定义的）  
 	        ① StringBuilder s = new StringBuilder();        
 	        ② s.append("a")        
@@ -1338,14 +1342,17 @@ public class StringTest5 {
 	        ④ s.toString()  --> 约等于 new String("ab")  
 	        补充：在jdk5.0之后使用的是StringBuilder,在jdk5.0之前使用的是StringBuffer  
          */        
-        String s4 = s1 + s2;//  
+         
+        String s4 = s1 + s2;
+        // s3指向常量池中的"ab", s4指向堆中的String实例对象（由StringBuffer的toString方法产生）
         System.out.println(s3 == s4);//false  
     }  
     /*  
     1. 字符串拼接操作不一定使用的是StringBuilder!  
        如果拼接符号左右两边都是字符串常量或常量引用，则仍然使用编译期优化，即非StringBuilder的方式。  
     2. 针对于final修饰类、方法、基本数据类型、引用数据类型的量的结构时，能使用上final的时候建议使用上。  
-     */    @Test  
+     */    
+    @Test  
     public void test4(){  
         final String s1 = "a";  
         final String s2 = "b";  
@@ -1374,7 +1381,9 @@ public class StringTest5 {
          ② 使用String的字符串拼接方式：内存中由于创建了较多的StringBuilder和String的对象，内存占用更大；如果进行GC，需要花费额外的时间。  
   
      改进的空间：在实际开发中，如果基本确定要前前后后添加的字符串长度不高于某个限定值highLevel的情况下,建议使用构造器实例化：  
-               StringBuilder s = new StringBuilder(highLevel);//new char[highLevel]     */    @Test  
+               StringBuilder s = new StringBuilder(highLevel);//new char[highLevel]     
+    */    
+    @Test  
     public void test6(){  
   
         long start = System.currentTimeMillis();  
@@ -1406,6 +1415,7 @@ public class StringTest5 {
     }  
 }
 ```
+
 ### intern()的使用
 
 
