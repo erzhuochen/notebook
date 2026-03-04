@@ -1331,10 +1331,14 @@ public class StringTest5 {
         String s2 = "b";  
         String s3 = "ab";  
         /*  
-        如下的s1 + s2 的执行细节：(变量s是我临时定义的）  
-        ① StringBuilder s = new StringBuilder();        ② s.append("a")        ③ s.append("b")        ④ s.toString()  --> 约等于 new String("ab")  
-        补充：在jdk5.0之后使用的是StringBuilder,在jdk5.0之前使用的是StringBuffer  
-         */        String s4 = s1 + s2;//  
+	        如下的s1 + s2 的执行细节：(变量s是我临时定义的）  
+	        ① StringBuilder s = new StringBuilder();        
+	        ② s.append("a")        
+	        ③ s.append("b")        
+	        ④ s.toString()  --> 约等于 new String("ab")  
+	        补充：在jdk5.0之后使用的是StringBuilder,在jdk5.0之前使用的是StringBuffer  
+         */        
+        String s4 = s1 + s2;//  
         System.out.println(s3 == s4);//false  
     }  
     /*  
