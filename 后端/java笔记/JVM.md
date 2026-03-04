@@ -1187,6 +1187,15 @@ HotSpot采用解释器与即使编译器并存的架构。
 
 ## 13. StringTable
 
+### 个人理解
+- 常量池中存储的是引用。
+- StringBuilder的toString方法不会把字符串加入到常量池中
+- String tem = new String("ab") 做了什么？（当常量池中没有”ab“时）
+	- 通过new，在堆中创建String对象（对象1）
+	- 在堆中创建”ab“（对象2），在堆中的字符串常量池中存入”ab“的引用。此时，即为常量池中加入了”ab“
+	- 使用常量池中的"ab"初始化String对象
+	- 上述步骤总共创建了2个对象
+
 ### String的基本特性
 - String：字符串
 	- String s1 = "hello"; // 字面量的定义方式，存储在字符串常量池，字符串常量池在堆中
@@ -1417,9 +1426,10 @@ public class StringTest5 {
 ```
 
 ### intern()的使用
-如果不是双引号声明的String对象，可以使用String提供的intern方法；inter方法会从字符串常量池中查询当前字符是否存在，若不存在就会将当前字符串放入常量池中。
+如果不是双引号声明的String对象，可以使用String提供的intern方法；inter方法会从字符串常量池中查询当前字符串是否存在，若不存在就会将当前字符串放入常量池中（指**在常量池中放入当前字符串的引用**）。
 - 比如：String myInfo = new String("hello").intern();
 也就是说，如果在任意字符串上调用String.intern方法，那么其返回结果所指向的那个类实例，必须和直接以常量形式出现的字符串实例完全相同。因此，下列表达式的值必定是true：`("a"+"b"+"c").intern() == "abc"`
+**注意：字符串常量池中存的是引用**。
 
 **例1**：
 Q: new String("ab")会创建几个对象？
@@ -1435,7 +1445,7 @@ public class StringIntern {
     public static void main(String[] args) {  
   
         String s = new String("1");  
-        s.intern();//调用此方法之前，字符串常量池中已经存在了"1"  ； 若改为 s = s.intern()，则 s == s2 为 true
+        s.intern();//调用此方法之前，字符串常量池中已经存在了"1" 
         String s2 = "1";  
         System.out.println(s == s2);//jdk6：false   jdk7/8：false  
   
@@ -1451,8 +1461,22 @@ public class StringIntern {
   
 }
 ```
+![889](JVM.assets/file-20260304165413665.png)
 
-
+**例3**：
+```java
+public class StringIntern1 {  
+    public static void main(String[] args) {  
+        //StringIntern.java中练习的拓展：  
+        String s3 = new String("1") + new String("1");//new String("11")  
+        //执行完上一行代码以后，字符串常量池中，是否存在"11"呢？答案：不存在！！  
+        String s4 = "11";//在字符串常量池中生成对象"11"  
+        String s5 = s3.intern();  
+        System.out.println(s3 == s4);//false  
+        System.out.println(s5 == s4);//true  
+    }  
+}
+```
 ### StringTable的垃圾回收
 
 ### G1中的String去重操作
