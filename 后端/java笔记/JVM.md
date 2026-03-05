@@ -1553,6 +1553,11 @@ public class StringIntern1 {
 	- 基本数据类型对应的Class对象, 一些常驻的异常对象(如:NullPointerException、OutOfMemoryError), 系统类加载器.
 - 反映java虚拟机内部情况的JMXBean、JVMTI中注册的回调、本地代码缓存等。
 
+- 除了这些固定的GC Roots集合以外，根据用户所选用的垃圾收集器以及当前回收的内存区域不同，还可以有其他对象“临时性”地加入，共同构成完整GC Roots集合。比如：分代收集和局部回收（Partial GC）
+- 小技巧：由于Root采用栈方式存放变量和指针，所以如果一个指针，它保存了堆内存里面的对象。但是自己又不存放在堆内存里面，那它就是一个Root。
+
+#### finalization
+- Java语言提供了对象终止（finalization）机制来允许开发人员提供**对象被销毁之前的自定义处理逻辑**。
 ## 16. 垃圾回收相关概念
 
 ## 17. 垃圾回收器
