@@ -1461,6 +1461,7 @@ public class StringIntern {
   
 }
 ```
+不明不白的图示：
 ![889](JVM.assets/file-20260304165413665.png)
 
 **例3**：
@@ -1477,18 +1478,20 @@ public class StringIntern1 {
     }  
 }
 ```
-### StringTable的垃圾回收
+### G1垃圾收集器的String去重操作
+- 当垃圾回收器工作的时候，会访问堆上存活的对象。**对每一个访问的对象都会检查是否是候选的要去重的String对象**。
+- 如果是，把这个对象的一个引用插入到队列中等待后续的处理。一个去重的线程在后台运行，处理这个队列。处理队列的一个元素意味着从队列删除这个元素，然后尝试去重它引用的String对象
+- 使用一个hashtable来记录所有的被String对象使用的不重复的char数组。当去重的时候，会查这个hashtable，来看堆上是否存在一个一模一样的char数组。
+- 如果存在，String对象会被调整引用那个数组，释放对原来的数组的引用，最终会被垃圾收集器回收掉。
+- 如果查找失败，char数组会被插入到hashtable，这样以后的时候就可以共享这个数组了。
 
-### G1中的String去重操作
-
-
-
-
-
-
-
+**命令行选项**
+- UseStringDeduplication（bool）：开启String去重，默认不开启，需要手动开启。
+- PrintStringDeduplicationStatistics（bool）：打印详细的去重统计信息。
+- StringDeduplicationAgeThreshold（uintx）：达到这个年龄的String对象被认为是去重的候选对象。
 
 ## 14. 垃圾回收概述
+
 
 ## 15. 垃圾回收相关算法
 
