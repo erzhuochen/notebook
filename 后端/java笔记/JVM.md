@@ -1737,7 +1737,28 @@ cms gc
 - 使用命令行指令：`jinfo -flag 相关垃圾回收器参数 进程ID`
 
 ### Serial回收器
-- Serial收集器采用复制算法、串行回收和“Stop-the-World”机制的方式执行内存回收。
+- Serial收集器采用**复制算法**、**串行回收**和“**Stop-the-World**”机制的方式执行内存回收。
 - 除了年轻代之外，Serial收集器还提供用于老年代垃圾收集的Serial Old收集器。Serial Old收集器同样也采用串行回收和“Stop-the-World”机制，只不过内存回收算法使用的是标记-压缩算法。
 	- Serial Old是运行在Client模式下默认的老年代的垃圾回收器
 	- Serial Old在Server模式下主要有两个用途：1）与新生代的Parallel Scavenge配合使用 2）作为老年代CMS收集器的后备垃圾收集方案
+
+### ParNew回收器
+- Serial收集器的多线程版本
+	- Par是Parallel的缩写，New：只能处理新生代
+- ParNew收集器除了采用并行回收的方式执行内存回收外，两款垃圾收集器之间几乎没有任何区别。ParNew收集器采用**复制算法**、“**Stop-the-World**"机制
+- ParNew 是很多JVM运行在Server模式下新生代的默认垃圾收集器
+
+### Parallel Scavenge回收器
+- 吞吐量优先
+- 采用**复制算法**、**并行回收**、”**Stop-the-World**"
+- 目标是达到一个**可控制的吞吐量**。**自适应调节策略**也是Parallel Scavenge与ParNew的一个重要区别
+- Parallel Old收集器采用了**标记-压缩算法**、**并行回收**、“**Stop-the-World**”
+- jdk8默认使用
+**参数设置**：
+- ``
+
+
+### CMS回收器
+- 低延迟
+- 在**强交互应用**中划时代意义的垃圾回收器：CMS（Concurrent-Mark-Sweep）收集器，**是HotSpot虚拟机中第一款真正意义上的并发收集器，它第一次实现了让垃圾收集器与用户线程同时工作**。
+- CMS采用**标记-清除**算法、“**Stop-the-World**”
