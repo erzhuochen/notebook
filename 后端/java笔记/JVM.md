@@ -1904,4 +1904,4 @@ G1 GC 的垃圾回收过程主要包括如下三个环节：
 **1. 年轻代GC**
 - JVM启动时，G1先准备好Eden区，程序在运行过程中不断创建对象到Eden区，当Eden空间耗尽时，G1会启动一次年轻代垃圾回收过程。
 - 年轻代垃圾回收只会回收Eden区和Survivor区
-- YGC时，首先G1停止应用程序的执行（Stop-The-World），G1创建回收集（Collection Set），回收集是指需要被回收的内存分段的集合，年轻代回收过程的回收集包括年轻代Eden区和Survivor区所有的内存分段。
+- YGC时，首先G1停止应用程序的执行（Stop-The-World），G1创建回收集（Collection Set），回收集是指需要被回收的内存分段的集合，年轻代回收过程的回收集包括年轻代Eden区和Survivor区所有的内存分段。p
