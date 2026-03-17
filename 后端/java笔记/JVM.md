@@ -1925,7 +1925,7 @@ G1 GC 的垃圾回收过程主要包括如下三个环节：
 **如何变脏 / 如何在对象赋值的那一刻去更新维护卡表？**
 在HotSpot虚拟机中是通过写屏障（Write Barrier）技术维护卡表状态的。
 **写屏障可以看作在虚拟机层面对“引用类型字段赋值”这个动作的AOP切面，在引用对象赋值时会产生一个环形（Around）通知，供程序执行额外的动作，也就是说赋值的前后都在写屏障的覆盖范畴内**。
-在赋值前的部分的写屏障叫**写后屏障**（Pre-Write Barrier），在赋值后的则叫作**写后屏障**（Post-Write Barrier）
+在赋值前的部分的写屏障叫**写前屏障**（Pre-Write Barrier），在赋值后的则叫作**写后屏障**（Post-Write Barrier）
 ```java
 void oop_field_store(oop* field, oop new_value){
 	// 引用字段赋值操作
