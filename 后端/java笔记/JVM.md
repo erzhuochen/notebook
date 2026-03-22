@@ -2104,6 +2104,53 @@ Full GC:
 
 
 
+## 1. 字节码
+
+```java
+package com.atguigu.test;  
+  
+class Father {  
+    int x = 10;  
+  
+    public Father() {  
+        this.print();  
+        x = 20;  
+    }  
+  
+    public void print(){  
+        System.out.println("Father.x = " + x);  
+    }  
+}  
+  
+class Son extends Father {  
+    int x = 30;  
+    int y = 233;  
+  
+    public Son(){  
+        this.print();  
+        x = 40;  
+    }  
+  
+    public void print(){  
+        System.out.println("Son.x = " + x);  
+    }  
+}  
+  
+public class Test {  
+  
+    public static void main(String[] args) {  
+        Father f = new Son();  
+        System.out.println(f.x); // 属性没有多态性，输出的是Father的x  
+        /**         
+         * 输出结果：  
+         * Son.x = 0  
+         * Son.x = 30         
+         * 20         
+        */    
+    }  
+}
+```
+
 
 
 
