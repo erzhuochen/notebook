@@ -1478,10 +1478,10 @@ public class StringTest5 {
 **注意：字符串常量池中存的是引用**。
 
 **例1**：
-Q: new String("ab")会创建几个对象？
+Q: **new String("ab")会创建几个对象？**
 A: 堆中对象1个（new创建的）+字符串常量池1个（可能）
 
-Q: new String("a") + new String("b")呢？
+Q: **new String("a") + new String("b")呢？**
 ![600](JVM.assets/file-20260304152536605.png)
 ![994](JVM.assets/file-20260304152548169.png)
 
