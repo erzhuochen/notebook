@@ -2104,7 +2104,8 @@ Full GC:
 
 
 
-## 1. 字节码
+## 一、Class文件结构
+### 1. 字节码的练习
 
 ```java
 package com.atguigu.test;  
@@ -2152,14 +2153,81 @@ public class Test {
 ```
 
 
+### 2. 字节码文件、指令
 
+- 字节码文件里是什么？
+  源文件经过编译器编译之后便会生成一个字节码文件（一个类生成一个字节码文件），字节码是一种二进制的类文件，它的内容是JVM的指令，而不像C、C++经由编译器直接生成机器码
+- 什么是字节码指令(byte code)
+  Java虚拟机的指令由一个字节长度的、代表着某种特定操作的**操作码**（opcode）以及跟随其后的零至多个代表此操作所需参数的**操作数**（operand）所构成。虚拟机中许多指令并不包含操作数，只有一个操作码。
+  比如：
+  ```java
+  aload_0
+  bipush 30
+  ...
+  ```
 
+- 如何解读供虚拟机解释执行的二进制字节码？
+  1. 直接看001001000111101的二进制源码
+  2. 使用javap
+  3. 使用客户端工具：jclasslib, jclasslib bytecode viewer
 
+### 3. Class文件结构
 
+- **Class类的本质**
+  任何一个Class文件都对应一个类或接口的定义信息。
+- **Class 文件格式**
+  Class文件格式采用一种类似C语言结构体的方式进行数据存储，这种结构只有两种数据类型：无符号数和表
+	- 无符号数属于基本的数据结构，以 u1, u2, u4, u8 来分别代表1个字节、2个字节、4个字节和8个字节的无符号数，无符号数可以用来描述数字、索引引用、数量值或者按照 UTF-8 编码构成字符串值。
+	- 表是由多个无符号数或者其他表作为数据项构成的复合数据类型，所有表都习惯地以"_info" 结尾。表用于描述有层次关系的复合结构的数据，整个Class文件本质上就是一张表。由于表没有固定长度，所以通常会在其前面加上数说明
 
+Class文件的总体结构如下：
+- 魔数
+- Class文件版本
+- 常量池
+- 访问标志
+- 类索引，父类索引，接口索引集合
+- 字段表集合
+- 方法表集合
+- 属性表集合
+```jvm
+ClassFile {
+    u4             magic;
+    u2             minor_version;
+    u2             major_version;
+    u2             constant_pool_count;
+    cp_info        constant_pool[constant_pool_count-1];
+    u2             access_flags;
+    u2             this_class;
+    u2             super_class;
+    u2             interfaces_count;
+    u2             interfaces[interfaces_count];
+    u2             fields_count;
+    field_info     fields[fields_count];
+    u2             methods_count;
+    method_info    methods[methods_count];
+    u2             attributes_count;
+    attribute_info attributes[attributes_count];
+}
+```
 
-
-
+|类型|名称|说明|长度|数量|
+|---|---|---|---|---|
+|u4|magic|魔数,识别Class文件格式|4个字节|1|
+|u2|minor_version|副版本号(小版本)|2个字节|1|
+|u2|major_version|主版本号(大版本)|2个字节|1|
+|u2|constant_pool_count|常量池计数器|2个字节|1|
+|cp_info|constant_pool|常量池表|n个字节|constant_pool_count-1|
+|u2|access_flags|访问标识|2个字节|1|
+|u2|this_class|类索引|2个字节|1|
+|u2|super_class|父类索引|2个字节|1|
+|u2|interfaces_count|接口计数器|2个字节|1|
+|u2|interfaces|接口索引集合|2个字节|interfaces_count|
+|u2|fields_count|字段计数器|2个字节|1|
+|field_info|fields|字段表|n个字节|fields_count|
+|u2|methods_count|方法计数器|2个字节|1|
+|method_info|methods|方法表|n个字节|methods_count|
+|u2|attributes_count|属性计数器|2个字节|1|
+|attribute_info|attributes|属性表|n个字节|attributes_count|
 
 
 
