@@ -2210,24 +2210,24 @@ ClassFile {
 }
 ```
 
-|类型|名称|说明|长度|数量|
-|---|---|---|---|---|
-|u4|magic|魔数,识别Class文件格式|4个字节|1|
-|u2|minor_version|副版本号(小版本)|2个字节|1|
-|u2|major_version|主版本号(大版本)|2个字节|1|
-|u2|constant_pool_count|常量池计数器|2个字节|1|
-|cp_info|constant_pool|常量池表|n个字节|constant_pool_count-1|
-|u2|access_flags|访问标识|2个字节|1|
-|u2|this_class|类索引|2个字节|1|
-|u2|super_class|父类索引|2个字节|1|
-|u2|interfaces_count|接口计数器|2个字节|1|
-|u2|interfaces|接口索引集合|2个字节|interfaces_count|
-|u2|fields_count|字段计数器|2个字节|1|
-|field_info|fields|字段表|n个字节|fields_count|
-|u2|methods_count|方法计数器|2个字节|1|
-|method_info|methods|方法表|n个字节|methods_count|
-|u2|attributes_count|属性计数器|2个字节|1|
-|attribute_info|attributes|属性表|n个字节|attributes_count|
+| 类型             | 名称                  | 说明             | 长度   | 数量                    |
+| -------------- | ------------------- | -------------- | ---- | --------------------- |
+| u4             | magic               | 魔数,识别Class文件格式 | 4个字节 | 1                     |
+| u2             | minor_version       | 副版本号(小版本)      | 2个字节 | 1                     |
+| u2             | major_version       | 主版本号(大版本)      | 2个字节 | 1                     |
+| u2             | constant_pool_count | 常量池计数器         | 2个字节 | 1                     |
+| cp_info        | constant_pool       | 常量池表           | n个字节 | constant_pool_count-1 |
+| u2             | access_flags        | 访问标识           | 2个字节 | 1                     |
+| u2             | this_class          | 类索引            | 2个字节 | 1                     |
+| u2             | super_class         | 父类索引           | 2个字节 | 1                     |
+| u2             | interfaces_count    | 接口计数器          | 2个字节 | 1                     |
+| u2             | interfaces          | 接口索引集合         | 2个字节 | interfaces_count      |
+| u2             | fields_count        | 字段计数器          | 2个字节 | 1                     |
+| field_info     | fields              | 字段表            | n个字节 | fields_count          |
+| u2             | methods_count       | 方法计数器          | 2个字节 | 1                     |
+| method_info    | methods             | 方法表            | n个字节 | methods_count         |
+| u2             | attributes_count    | 属性计数器          | 2个字节 | 1                     |
+| attribute_info | attributes          | 属性表            | n个字节 | attributes_count      |
 
 
 
