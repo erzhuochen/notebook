@@ -2276,12 +2276,12 @@ ClassFile {
 #### 3.5 类索引、父类索引、接口索引集合
   
 
-| 长度  | 含义                                       |
-| --- | ---------------------------------------- |
-| u2  | this_class（类索引，如 com/atguigu/java1/Demo） |
-| u2  | super_class (父索引，如java/lang/Object)      |
-| u2  | interfaces_count                         |
-| u2  | interfaces[interfaces_count] (接口索引集合)    |
+| 长度  | 含义                                         |
+| --- | ------------------------------------------ |
+| u2  | this_class（类索引，指向如 com/atguigu/java1/Demo） |
+| u2  | super_class (父索引，指向如java/lang/Object)      |
+| u2  | interfaces_count                           |
+| u2  | interfaces[interfaces_count] (接口索引集合)      |
 
 
 #### 3.6 字段表集合
@@ -2304,11 +2304,12 @@ ClassFile {
 	- 可否序列化（transient修饰符）
 	- 字段数据类型（基本数据类型、对象、数组）
 	- 字段名称
-- 字段表结构：
 
 
+#### 3.7 方法表
 
 
+#### 属性表
 
 
 
