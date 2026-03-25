@@ -2403,7 +2403,8 @@ C:\Users\erzhuochen>javap
                                    和成员 (默认)
   -p  -private                     显示所有类和成员
   -c                               对代码进行反汇编
-  -s                               输出内部类型签名 (描述符信息，如B->byte,...)
+  -s                               输出内部类型签名 (描述符信息，如B->byte,...
+  )
   -sysinfo                         显示正在处理的类的
                                    系统信息（路径、大小、日期、SHA-256 散列）
   -constants                       显示最终常量
