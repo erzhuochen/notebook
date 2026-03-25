@@ -2313,13 +2313,78 @@ ClassFile {
 
 通用格式
 
+```c
+attribute_info {
+    u2 attribute_name_index;
+    u4 attribute_length;
+    u1 info[attribute_length];
+}
+```
+
 | 类型  | 名称                   | 数量               | 含义            |
 | --- | -------------------- | ---------------- | ------------- |
 | u2  | attribute_name_index | 1                | 属性名索引（如code）  |
 | u4  | attribute_length     | 1                | 属性长度          |
 | u1  | info                 | attribute_length | 属性表（内容由属性名来定） |
 
+属性有以下这些：
+![](JVM.assets/file-20260325091144605.png)
+
+##### Code
+```java
+Code_attribute {
+    u2 attribute_name_index;
+    u4 attribute_length;
+    u2 max_stack;
+    u2 max_locals;
+    u4 code_length;
+    u1 code[code_length];
+    u2 exception_table_length;
+    {   u2 start_pc;
+        u2 end_pc;
+        u2 handler_pc;
+        u2 catch_type;
+    } exception_table[exception_table_length];
+    u2 attributes_count;
+    attribute_info attributes[attributes_count];
+}
+```
+##### LineNumberTable
+
+```c
+LineNumberTable_attribute {
+    u2 attribute_name_index;
+    u4 attribute_length;
+    u2 line_number_table_length;
+    {   u2 start_pc; // 字节码行号
+        u2 line_number;	// Java源代码行号
+    } line_number_table[line_number_table_length];
+}
+```
+
+##### LocalVariableTable
+```java
+LocalVariableTable_attribute {
+    u2 attribute_name_index;
+    u4 attribute_length;
+    u2 local_variable_table_length;
+    {   u2 start_pc;
+        u2 length;
+        u2 name_index;
+        u2 descriptor_index;
+        u2 index;
+    } local_variable_table[local_variable_table_length];
+}
+```
+
+##### SourceFile
+```java
+SourceFile_attribute {
+    u2 attribute_name_index;
+    u4 attribute_length;
+    u2 sourcefile_index;
+}
+```
 
 
-
-
+### 3.9 
