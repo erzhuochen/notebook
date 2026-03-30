@@ -2387,7 +2387,7 @@ SourceFile_attribute {
 ```
 
 
-### 3.9 javap的使用
+#### 3.9 javap的使用
 
 ```bash
 C:\Users\erzhuochen>javap
@@ -2418,3 +2418,23 @@ C:\Users\erzhuochen>javap
   -bootclasspath <路径>            覆盖引导类文件的位置
   --multi-release <version>        指定要在多发行版 JAR 文件中使用的版本
 ```
+
+
+### 4. 指令
+#### 1）加载与存储指令
+用于将数据从栈帧的局部变量表和操作数栈之间来回传递。
+1. **局部变量压栈指令**：xload, xload_\<n\>（其中x为i、l、f、d、a，n为0到3）
+2. **常量入栈指令**：bipush, sipush, ldc, ldc_w, ldc2_w, aconst_null, iconst_m1, iconst_\<i>, lconst_\<l>, fconst_\<f>, dconst_\<d> (eg. iconst_\<i> 有 iconst_0)
+3. **出栈转入局部变量表指令**：xstore, xstore_\<n>, xastore
+
+f**load**\_1：将第一个局部变量压入操作数栈
+
+
+i**const**\_m1: 将-1压入操作数栈
+dconst_2: 将浮点数2压入栈
+bi**push**: 接收8为整数作为参数入栈
+sipush: 接收16位整数入栈
+**ldc**：万能的ldc，可以接收一个8位的参数，该参数指向常量池中的int, float, String的索引，将指定的内容压入栈
+ldc_w: 接收两个8位参数
+
+i**store**\_2：将从操作数栈中弹出一个整数，并把它赋值给局部变量索引2位置
