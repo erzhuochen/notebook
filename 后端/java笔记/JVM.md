@@ -2440,3 +2440,16 @@ ldc_w: 接收两个8位参数
 i**store**\_2：将从操作数栈中弹出一个整数，并把它赋值给局部变量索引2位置
 
 #### 2）算术指令
+加法指令：iadd, ladd, fadd, dadd
+减法指令：isub、lsub、fsub、dsub
+乘法指令：mul
+除法指令：idiv
+求余指令：rem
+取反指令：neg
+自增指令：inc
+位运算：
+- 位移指令：shl、shr
+- 按位或指令：ior
+- 按位与指令：iadd
+- 按位异或指令：ixor
+比较指令：cmp
