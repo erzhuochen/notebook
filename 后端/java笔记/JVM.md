@@ -2453,3 +2453,33 @@ i**store**\_2：将从操作数栈中弹出一个整数，并把它赋值给局�
 - 按位与指令：iadd
 - 按位异或指令：ixor
 比较指令：cmp
+
+#### 3）类型转换指令
+宽化类型转换
+- i2l, i2f, i2d, l2f, l2d, f2d
+- int --> long --> float --> double
+- 可能存在精度丢失：int,long转float, long转double
+- byte、char和shot类型转int不存在，jvm内部把它们当int处理
+
+窄化类型转换：
+- i2b, i2c, i2s, l2i, f2i, f2l, d2i, d2l, d2f
+- 浮点数有无穷大和NAN，int，long没有
+- 浮点数转整形（只限于int和long）：
+	- 浮点数是NAN --> 整形 0
+	- 浮点数是无穷大或小 --> 整型极值
+	- 浮点数超过要转整型的最大范围 --> 整形极值
+- double转float
+	- 转换结果绝对值小于float范围 --> float +-0
+	- 大于 --> float +-无穷
+	- double NAN --> float NAN
+
+
+#### 4）对象的创建与访问指令
+
+##### 创建指令
+1. 创建类实例的指令：new
+   - 它接收一个操作数，为指向常量池的索引，表示要创建的类型，执行完成后，将对象的引用压入栈。
+2. 创建数组的指令：newarray, anewarray, multianewarray
+   - newarray: 创建基本类型数组
+   - anewarray：创建引用类型数组
+   - multianewarray：创建多维数组
