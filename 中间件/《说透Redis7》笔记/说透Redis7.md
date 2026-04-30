@@ -1245,7 +1245,7 @@ selector轮询Channels
 
 Reactor模型核心是事件驱动,基于IO多路复用构建. 可以理解为Reactor模型中的反应器角色<u>类似</u>于事件转发器(Dispatcher)(承接连接建立, IO处理以及事件分发), 如下图
 
-![233](assets/cc42a4b21e744f0cae7c3b97ad295752tplv-k3u1fbpfcp-zoom-in-crop-mark1512000.webp)
+![1041](assets/cc42a4b21e744f0cae7c3b97ad295752tplv-k3u1fbpfcp-zoom-in-crop-mark1512000.webp)
 
 Reactor 模式由 `Reactor 线程`、`Handlers 处理器`两大角色组成，两大角色的职责分别如下：
 
