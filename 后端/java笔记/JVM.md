@@ -1235,6 +1235,7 @@ HotSpot采用解释器与即使编译器并存的架构。
 ## 13. StringTable
 
 ### 个人理解
+[5道面试题，拿捏String底层原理！ - 码农参上 - 博客园](https://www.cnblogs.com/trunks2008/p/15907320.html)
 - 常量池中存储的是引用。
 - StringBuilder的toString方法不会把字符串加入到常量池中
 - String tem = new String("ab") 做了什么？（当常量池中没有”ab“时）
