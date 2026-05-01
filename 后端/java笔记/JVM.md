@@ -1242,6 +1242,76 @@ HotSpot采用解释器与即使编译器并存的架构。
 	- 在堆中创建”ab“（对象2），在堆中的字符串常量池中存入”ab“的引用。此时，即为常量池中加入了”ab“
 	- 使用常量池中的"ab"初始化String对象
 	- 上述步骤总共创建了2个对象
+- final修饰的String算字面量。
+  ```java
+  public void test4(){  
+        final String s1 = "a";  
+        final String s2 = "b";  
+        String s3 = "ab";  
+        String s4 = s1 + s2;  
+        System.out.println(s3 == s4);//true  
+    }  
+  ```
+
+**为什么 new String("abc")会使用lcd操作，toString()中的new String就不会使用ldc操作**
+一句话回答你的问题：**`ldc` 指令的作用是“从 Class 文件的常量池中加载数据”。因为 `new String("abc")` 里有写死的字面量 `"abc"`，所以需要 `ldc`；而 `toString()` 源码里的 `new String(value, 0, count)` 用的是变量（数组），没有任何写死的字符串，所以压根用不上 `ldc`。**
+
+为了让你彻底看清这两者的区别，我们从“数据来源”和“字节码长啥样”这两个层面来做个对比剖析：
+
+1. 为什么 `new String("abc")` 会触发 `ldc`？
+
+在这个场景中，数据来源是**硬编码（Hardcode）在源代码里的字面量**。
+
+- **编译期动作：** 当你敲下 `"abc"` 这三个加了双引号的字符时，Java 编译器（javac）看到了。它会说：“这是一个静态常量，我得把它记录在这个 `.class` 文件的专属账本（静态常量池）里。”
+    
+- **运行期动作：** 当 JVM 执行这行代码时，它需要把 `"abc"` 作为一个参数传递给 `new String()` 构造函数。那这个 `"abc"` 从哪来？就是通过 **`ldc` 指令**。
+    
+- **指令翻译：** `ldc` 的全称是 _Load Constant_（加载常量）。它的潜台词是：“**去当前类的静态常量池里，把那个叫 'abc' 的常量捞出来，推到操作数栈顶，准备给后面的代码用。**” （这就是触发将引用放入 StringTable 的时刻）。
+    
+
+2. 为什么 `toString()` 中的 `new` 不会触发 `ldc`？
+
+我们再看 `StringBuilder.toString()` 的底层源码：
+
+Java
+
+```
+// 截取自 JDK 源码
+public String toString() {
+    return new String(value, 0, count);
+}
+```
+
+在这个场景中，数据来源是**内存中动态运行时的变量（数组）**。
+
+- **没有双引号：** 你仔细看这行代码，**里面没有任何双引号引起来的字符串！** 它传递给 `String` 构造函数的三个参数分别是：
+    
+    1. `value`：一个引用，指向堆中的一段字符数组（`char[]` 或 `byte[]`）。
+        
+    2. `0`：一个普通的整型变量。
+        
+    3. `count`：一个普通的整型变量（记录当前数组里存了多少个字符）。
+        
+- **编译期动作：** 编译器看这行代码时，只看到了“变量传递”和“调用构造函数”。这里面没有任何新的字符串字面量需要记录到 `.class` 文件的常量池中。
+    
+- **运行期动作（字节码）：** 因为没有常量需要加载，JVM 绝对不可能生成 `ldc` 指令。相反，它生成的字节码是用来加载本地变量的，大概长这样（简化版）：
+
+```
+0: new            # 开辟 String 对象的内存
+3: dup
+4: aload_0        # 加载 value 数组的引用 (Load reference from local variable)
+5: iconst_0       # 加载常数 0 (int constant 0)
+6: iload_1        # 加载 count 变量 (Load int from local variable)
+7: invokespecial  # 调用 String(char[], int, int) 构造方法！
+```
+
+发现了吗？**全是 `aload`（加载引用）和 `iload`（加载整数）等指令，根本没有 `ldc` 的影子。**
+
+打个比方（总结）
+
+- **`ldc` 就像是“照单点菜”：** `new String("abc")` 里的 `"abc"` 早就印在了菜单（Class 文件常量池）上。JVM 执行时大喊一声 `ldc`，服务员就把提前准备好的 `"abc"` 端了上来（放入 StringTable）。
+    
+- **`toString()` 就像是“厨房现炒”：** `new String(value, ...)` 是拿着后厨砧板上刚刚切好的肉和菜（堆里的 `value` 字符数组）直接下锅炒一盘新菜。因为不是从前台菜单上点的，所以压根不需要经过前台（不需要 `ldc`，不接触 StringTable）。
 
 ### String的基本特性
 - String：字符串
@@ -1255,7 +1325,7 @@ HotSpot采用解释器与即使编译器并存的架构。
 		- **不共享**：每次都创建新的堆对象
 - String被声明为final，不可被继承
 - String实现了Serializable接口：表示字符串是支持序列化的。实现了Comparable接口：表示String可以比较大小
-- jdk1.9后，String不再使用char[]，改成了使用byte[]加上编码标记，节省了一些空间
+- **jdk1.9后，String不再使用char[]，改成了使用byte[]加上编码标记，节省了一些空间**
 
 - String：代表不可变的字符序列。简称：**不可变性**。
 	- 当对字符串重新赋值时，需要重新指定内存区域赋值，不能使用原有的value进行赋值。
@@ -1483,8 +1553,18 @@ Q: **new String("ab")会创建几个对象？**
 A: 堆中对象1个（new创建的）+字符串常量池1个（可能）
 
 Q: **new String("a") + new String("b")呢？**
+==(创建对象的顺序错了，纠错看下面”jvm执行ldc操作时的细节“)==
+
 ![600](JVM.assets/file-20260304152536605.png)
 ![994](JVM.assets/file-20260304152548169.png)
+**jvm执行ldc操作时的细节**
+- JVM 执行 `ldc` 指令，准备把 `"abc"` 推入操作数栈。
+- 此时，JVM 会先去全局的 **StringTable** 中查找是否已经存在 `"abc"` 的引用。
+- **因为前提是“常量池中不存在 'abc'”**，所以 JVM 会在这一刻：
+    - 在堆（Heap）中实例化一个值为 `"abc"` 的 `String` 对象（**这是创建的第 1 个对象**）。
+    - 将这个新建对象的引用（指针）放入 StringTable 中。
+    - 把这个引用压入操作数栈，交还给程序。
+- 紧接着，执行 `invokespecial`，也就是调用 `new String()` 的构造函数。它会拿着刚刚 `ldc` 给的 `"abc"` 对象的引用，去初始化第 0 步开辟好的新空间，从而在堆中生成一个全新的 `String` 对象，并将其地址赋值给变量 `k`（**这是创建的第 2 个对象**）。
 
 **例2**：
 ```java
