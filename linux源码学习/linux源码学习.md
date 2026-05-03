@@ -274,7 +274,45 @@ struct eventpoll {
 };
 ```
 
+## 操作流程
+1. epoll_create() 创建epoll模型，返回它的fd值
+2. 此时有5个客户端通过与服务端建立连接。调用epoll_ctl(int epfd, int op, int fd, epoll_event *event)。在函数中注册了一个回调函数
+	- epfd: epoll模型的fd值
+	- op：操作类型（EPOLL_CTL_ADD、MOD、DEL）
+	- fd：需要监听的文件描述符（例子中是客户端的fd）
+	- epoll_event *event：需要监听该文件描述符上的哪些事件
+3. 有三个客户端向服务端的网卡发送数据，网卡用DMA拷贝技术，把数据拷贝到内核环形缓冲区。
+	- 如果是poll模型，会遍历每个文件描述符看看哪个fd上有数据到达
+	- epoll模型
+
+回调函数是谁调用的？调用流程？
+
+
 ## 源码
+```c
+/* 
+ * eventpoll: epoll 的核心实例，每个 epollfd 在内核中对应一个 eventpoll。
+ */
+struct eventpoll {
+    spinlock_t lock;           // 保护就绪链表等核心数据的自旋锁
+    struct mutex mtx;          // 保护红黑树等操作的互斥锁
+    wait_queue_head_t wq;      // 核心等待队列：调用 epoll_wait() 的进程会挂载（睡眠）在这里
+    struct list_head rdllist;  // 就绪链表 (Ready List)：所有已经发生事件的 fd 对应的 epitem 都在这里
+    struct rb_root rbr;        // 红黑树根节点：用于存储所有被监听的 fd (epitem)，便于 O(logN) 增删改查
+    struct epitem *ovflist;    // 溢出链表：在向用户空间拷贝数据时，暂存新到来的事件
+};
+
+/* 
+ * epitem: 代表一个被监听的 fd 及其相关状态。
+ */
+struct epitem {
+    struct rb_node rbn;        // 红黑树节点，挂载到 eventpoll->rbr
+    struct list_head rdllink;  // 就绪链表节点，挂载到 eventpoll->rdllist
+    struct epoll_filefd ffd;   // 记录被监听的 fd 及其对应的 struct file
+    struct eventpoll *ep;      // 反向指针，指向所属的 eventpoll 实例
+    struct epoll_event event;  // 记录用户关心的事件 (如 EPOLLIN, EPOLLOUT)
+};
+```
 
 [epoll内核源码详解+自己总结的流程_牛客网](https://www.nowcoder.com/discuss/353154027972141056)
 ```c
