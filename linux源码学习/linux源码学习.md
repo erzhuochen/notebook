@@ -60,7 +60,7 @@ static int __init checksetup(char *line)
     return 0;                      // 没有匹配的处理器
 }
 ```
-# 1.2 主要执行流程
+## 1.2 主要执行流程
 
 ### 1. `start_kernel()` - 内核主入口点（0号进程）
 
@@ -198,4 +198,139 @@ init()
  用户空间 init 进程
 
 
+# 二、epoll
+## 前言
+
+Linux内核提供了3个关键函数供用户来操作epoll，分别是：
+
+- epoll_create(), 创建eventpoll对象
+- epoll_ctl(), 操作eventpoll对象
+- epoll_wait(), 从eventpoll对象中返回活跃的事件
+
+而操作系统内部会用到一个名叫epoll_event_callback()的回调函数来调度epoll对象中的事件，这个函数非常重要，故本文将会对上述4个函数进行源码分析。
+
+## 源码来源
+
+由于epoll的实现内嵌在内核中，直接查看内核源码的话会有一些无关代码影响阅读。为此在GitHub上写的简化版TCP/IP[协议栈](https://zhida.zhihu.com/search?content_id=210928563&content_type=Article&match_order=1&q=%E5%8D%8F%E8%AE%AE%E6%A0%88&zhida_source=entity)，里面实现了epoll逻辑。链接为：[https://github.com/wangbojing/NtyTcp](https://link.zhihu.com/?target=https%3A//github.com/wangbojing/NtyTcp)
+
+存放着以上4个关键函数的文件是[src\nty_epoll_rb.c]，本文接下来通过分析该程序的代码来探索epoll能支持高[并发连接](https://zhida.zhihu.com/search?content_id=210928563&content_type=Article&match_order=1&q=%E5%B9%B6%E5%8F%91%E8%BF%9E%E6%8E%A5&zhida_source=entity)的秘密。
+
+## 两个核心数据结构
+
+### (1)[epitem](https://zhida.zhihu.com/search?content_id=210928563&content_type=Article&match_order=1&q=epitem&zhida_source=entity)
+
+![](https://pic3.zhimg.com/v2-81634d6162b04a52392571e608a62252_1440w.jpg)
+
+如图所示，epitem是中包含了两个主要的成员变量，分别是rbn和rdlink，前者是红黑树的节点，而后者是双链表的节点，也就是说一个epitem对象即可作为红黑树中的一个节点又可作为双链表中的一个节点。并且每个epitem中存放着一个event，对event的查询也就转换成了对epitem的查询。
+
+```text
+struct epitem {
+	RB_ENTRY(epitem) rbn;
+	/*  RB_ENTRY(epitem) rbn等价于
+	struct {											
+		struct type *rbe_left;		//指向左子树
+		struct type *rbe_right;		//指向右子树
+		struct type *rbe_parent;	//指向父节点
+		int rbe_color;			    //该节点的颜色
+	} rbn
+	*/
+ 
+	LIST_ENTRY(epitem) rdlink;
+	/* LIST_ENTRY(epitem) rdlink等价于
+	struct {									
+		struct type *le_next;	//指向下个元素
+		struct type **le_prev;	//前一个元素的地址
+	}*/
+ 
+	int rdy; //判断该节点是否同时存在与红黑树和双向链表中
+	
+	int sockfd; //socket句柄
+	struct epoll_event event;  //存放用户填充的事件
+};
+```
+
+### (2)[eventpoll](https://zhida.zhihu.com/search?content_id=210928563&content_type=Article&match_order=4&q=eventpoll&zhida_source=entity)
+
+![](https://picx.zhimg.com/v2-2844a72b6efbb90ab0de45e122c12365_1440w.jpg)
+
+如图所示，eventpoll中包含了两个主要的成员变量，分别是rbr和rdlist，前者指向红黑树的[根节点](https://zhida.zhihu.com/search?content_id=210928563&content_type=Article&match_order=1&q=%E6%A0%B9%E8%8A%82%E7%82%B9&zhida_source=entity)，后者指向双链表的[头结点](https://zhida.zhihu.com/search?content_id=210928563&content_type=Article&match_order=1&q=%E5%A4%B4%E7%BB%93%E7%82%B9&zhida_source=entity)。即一个eventpoll对象对应二个epitem的容器。对epitem的检索，将发生在这两个容器上（红黑树和双链表）。
+
+```text
+struct eventpoll {
+	/*
+	struct ep_rb_tree {
+		struct epitem *rbh_root; 			
+	}
+	*/
+	ep_rb_tree rbr;      //rbr指向红黑树的根节点
+	
+	int rbcnt; //红黑树中节点的数量（也就是添加了多少个TCP连接事件）
+	
+	LIST_HEAD( ,epitem) rdlist;    //rdlist指向双向链表的头节点；
+	/*	这个LIST_HEAD等价于 
+		struct {
+			struct epitem *lh_first;
+		}rdlist;
+	*/
+	
+	int rdnum; //双向链表中节点的数量（也就是有多少个TCP连接来事件了）
+ 
+	// ...略...
+	
+};
+```
+
+## 四个关键函数
+
+### (1) epoll_create()
+
+```c
+//创建epoll对象，包含一颗空红黑树和一个空双向链表
+int epoll_create(int size) {
+	//与很多内核版本一样，size参数没有作用，只要保证大于0即可
+	if (size <= 0) return -1;
+	
+	nty_tcp_manager *tcp = nty_get_tcp_manager(); //获取tcp对象
+	if (!tcp) return -1;
+	
+	struct _nty_socket *epsocket = nty_socket_allocate(NTY_TCP_SOCK_EPOLL);
+	if (epsocket == NULL) {
+		nty_trace_epoll("malloc failed\n");
+		return -1;
+	}
+ 
+	// 1° 开辟了一块内存用于填充eventpoll对象
+	struct eventpoll *ep = (struct eventpoll*)calloc(1, sizeof(struct eventpoll));
+	if (!ep) {
+		nty_free_socket(epsocket->id, 0);
+		return -1;
+	}
+ 
+	ep->rbcnt = 0;
+ 
+	// 2° 让红黑树根指向空
+	RB_INIT(&ep->rbr);       //等价于ep->rbr.rbh_root = NULL;
+ 
+	// 3° 让双向链表的头指向空
+	LIST_INIT(&ep->rdlist);  //等价于ep->rdlist.lh_first = NULL;
+ 
+	// 4° 并发环境下进行互斥
+	// ...该部分代码与主线逻辑无关，可自行查看...
+ 
+	//5° 保存epoll对象
+	tcp->ep = (void*)ep;
+	epsocket->ep = (void*)ep;
+ 
+	return epsocket->id;
+}
+```
+
+对以上代码的逻辑进行梳理，可以总结为以下6步：
+
+1. 创建eventpoll对象
+2. 让eventpoll中的rbr指向空
+3. 让eventpoll中的rdlist指向空
+4. 在并发环境下进行互斥
+5. 保存eventpoll对象
+6. 返回eventpoll对象的句柄(id)
 
