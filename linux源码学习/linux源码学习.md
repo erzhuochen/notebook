@@ -201,7 +201,21 @@ init()
 # 二、epoll
 ## 个人理解
 - epoll 在等待队列中是成员？
+```mermaid
+graph TD
+    A["ep_insert() 调用 tfile->f_op->poll()"] -->|"函数指针，对UDP socket指向"| B["sock_poll()"]
+    B -->|"socket的通用poll入口，根据协议分派"| C["udp_poll()"]
+    C -->|"UDP没有特殊逻辑，直接调用"| D["datagram_poll()"]
+    D -->|"做两件事"| E["① sock_poll_wait() — 注册回调"]
+    D --> F["② 检查当前状态 — 返回就绪事件"]
+    E -->|"内部调用 poll_wait()，触发"| G["ep_ptable_queue_proc() ← epoll的回调！"]
+    G --> H["把 epitem 挂到 socket 的等待队列上"]
 
+    style A fill:#1a1a2e,stroke:#e94560,color:#fff
+    style G fill:#1a1a2e,stroke:#0f3460,color:#fff
+    style H fill:#16213e,stroke:#0f3460,color:#fff
+
+```
 ## 前言
 
 Linux内核提供了3个关键函数供用户来操作epoll，分别是：
