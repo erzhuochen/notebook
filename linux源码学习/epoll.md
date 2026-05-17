@@ -224,14 +224,14 @@ graph TD
 
 #### 每个函数的职责
 
-| 函数 | 属于哪一层 | 干了什么 |
-|------|----------|----------|
-| `tfile->f_op->poll()` | VFS 层 | 函数指针调用，对 socket 文件指向 `sock_poll` |
-| `sock_poll()` | socket 通用层 | socket 的 poll 入口，根据类型（TCP/UDP/…）分派 |
-| `udp_poll()` | UDP 协议层 | UDP 的 poll，比较简单，直接转给 `datagram_poll` |
-| `datagram_poll()` | 数据报通用层 | **做两件关键的事**（见下方） |
-| `sock_poll_wait()` | socket 通用层 | 调用 `poll_wait()`，把 epoll 的回调注册到 socket 等待队列 |
-| `ep_ptable_queue_proc()` | **epoll 层** | epoll 自己的函数！在第②步中被设为回调 |
+| 函数                       | 属于哪一层       | 干了什么                                        |
+| ------------------------ | ----------- | ------------------------------------------- |
+| `tfile->f_op->poll()`    | VFS 层       | 函数指针调用，对 socket 文件指向 `sock_poll`            |
+| `sock_poll()`            | socket 通用层  | socket 的 poll 入口，根据类型（TCP/UDP/…）分派          |
+| `udp_poll()`             | UDP 协议层     | UDP 的 poll，比较简单，直接转给 `datagram_poll`        |
+| `datagram_poll()`        | 数据报通用层      | **做两件关键的事**（见下方）                            |
+| `sock_poll_wait()`       | socket 通用层  | 调用 `poll_wait()`，把 epoll 的回调注册到 socket 等待队列 |
+| `ep_ptable_queue_proc()` | **epoll 层** | epoll 自己的函数！在第②步中被设为回调                      |
 
 #### `datagram_poll()` 做的两件关键事
 
