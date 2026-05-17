@@ -9,9 +9,6 @@ redis 7.0.4
 - 安全的二进制存储 （\0）
 - 减少CPU消耗
 - sds扩缩容方便
-
-
-
 ### sds结构体
 
 ```c
@@ -22,8 +19,6 @@ struct __attribute__ ((__packed__)) sdshdr32 {
     char buf[];
 };
 ```
-
-
 
 `typedef char *sds;`
 
@@ -55,7 +50,7 @@ sdstrynewlen()、sdsnew()、sdsempty()、sdsnewlen()
 
 **对于 sdshdr8 以上的缩容，不做 sds 类型上面的变更**。(拷贝的代价大)
 
-## List
+## quicklist
 
 ![image.png](assets/4f28146edb054a47a587e706099be2cetplv-k3u1fbpfcp-jj-mark2268000q75.webp)
 
