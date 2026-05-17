@@ -158,7 +158,6 @@ epoll 实例纯粹是一个**内核内存中的数据结构**（`struct eventpol
 ## 第四阶段：`epoll_ctl` — 添加/修改/删除监听 fd
 
 > 📍 对应代码: [epoll.cpp:L223-L325](file:///d:/workspace/linux/epoll/epoll.cpp#L223-L325)
-
 ### 调用链
 
 ```
@@ -167,7 +166,7 @@ epoll 实例纯粹是一个**内核内存中的数据结构**（`struct eventpol
   ├─→ fget(fd)             // 获取目标 fd 的 struct file
   ├─→ 安全检查：
   │     ├ fd 必须支持 poll（f_op->poll 不为 NULL）
-  │     └ epoll 不能监听自己
+  │     └ epoll ep不能自己监听自己
   ├─→ ep_find(ep, tfile, fd)  // 在红黑树中查找该 fd
   └─→ switch(op):
         ├ EPOLL_CTL_ADD → ep_insert()   // 插入新 fd
