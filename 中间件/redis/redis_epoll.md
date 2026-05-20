@@ -5,6 +5,15 @@
 - AE_READABLE：接收缓冲区有数据了 → 通知你可以调 read() 了
 - AE_WRITABLE：发送缓冲区有空间了 → 通知你可以调 write() 了
 
+redis数据类型：
+- String：
+	- int：如果字符串是纯整数。实现：指向实际对象的指针是8字节的，直接把整数放进去。
+	- sds：embstr 嵌入式字符串（长度小于44字节） --> raw 原始字符串（长度大于44字节） 
+- List：listpack+双向链表=quicklist
+- Set：intset/listpack（小容量）--> dict（大容量）
+- ZSet：listpack（小容量）--> skiplist+dict（大容量）
+- Hash：listpack（小容量）--> dict（大容量）
+
 # Redis 线程模型 & epoll 使用源码学习指南
 
 本文档引导你学习 Redis 如何使用 epoll 构建其事件驱动的服务器模型，以及 Redis 6.0 多线程 I/O 的实现原理。配套源码文件已放在同目录下。
