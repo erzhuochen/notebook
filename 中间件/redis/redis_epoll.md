@@ -2,8 +2,8 @@
 混淆点：
 - read()：tcp接收缓冲区有数据时把数据拷贝到用户态。
 - write()：把用户态的数据拷贝到tcp发送缓冲区。
-- AE_READABLE：接收缓冲区中的数据被拷贝到用户态，该用户态数据被称为AE_READABLE事件
-- AE_WRITABLE：发送缓冲区空闲时会产生AE_WRITABLE事件，命令回复处理器会返回对应的结果
+- AE_READABLE：接收缓冲区有数据了 → 通知你可以调 read() 了
+- AE_WRITABLE：发送缓冲区有空间了 → 通知你可以调 write() 了
 
 # Redis 线程模型 & epoll 使用源码学习指南
 
