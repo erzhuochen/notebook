@@ -2,7 +2,10 @@
 
 retrieve_knowledge
 
-2^2^
+```
+```
+
+
 
 ```shell
 knowledge_base_results: [{
