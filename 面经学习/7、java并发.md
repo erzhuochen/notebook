@@ -37,7 +37,7 @@
 
 ### 一、线程基础
 1. 进程和线程有什么区别？
-   - 进程独享进程空间；线程共享进程空间的堆、方法区、进程资源，每个线程有独立的栈、寄存器、pc、localthread
+   - 进程独享进程空间；线程共享进程空间的堆、方法区、进程资源，每个线程有独立的栈、寄存器、pc
    - 进程需要使用进程通信方法（如管道、消息队列、共享空间、信号、信号量、socket）；线程可以直接访问进程空间中的共享变量（如成员变量）来进行通信。缺点是线程需要注意同步问题。
    - 一个进程崩了其他进程不会有影响；线程一个崩了，在同一个进程空间的其他线程都会崩。
    - 进程的创建/销毁耗时大（要分配进程空间）；线程创建/销毁耗时小
@@ -48,30 +48,34 @@
 - 简单说，并发强调任务交替推进，并行强调任务同时执行。
 
 3. Java 线程有哪些状态？它们之间如何转换？
-Java 线程有 6 种状态：
-- NEW：线程对象已创建，但还没有调用 start()。
-- RUNNABLE：可运行状态，包括就绪和正在运行。Java 中没有单独区分 ready 和 running。
-- BLOCKED：等待获取 synchronized 锁。
-- WAITING：无限期等待，比如 wait()、join()、LockSupport.park()。
-- TIMED_WAITING：限时等待，比如 sleep(time)、wait(time)、join(time)。
-- TERMINATED：线程执行结束。
+	Java 线程有 6 种状态：
+	- NEW：线程对象已创建，但还没有调用 start()。
+	- RUNNABLE：可运行状态，包括就绪和正在运行。Java 中没有单独区分 ready 和 running。
+	- BLOCKED：等待获取 synchronized 锁。
+	- WAITING：无限期等待，比如 wait()、join()、LockSupport.park()。
+	- TIMED_WAITING：限时等待，比如 sleep(time)、wait(time)、join(time)。
+	- TERMINATED：线程执行结束。
 
 4. `start()` 和 `run()` 有什么区别？
-- start()：启动一个新线程，让线程进入 RUNNABLE 状态，之后由 JVM/操作系统调度执行 run()。
-- run()：只是一个普通方法调用，不会创建新线程。谁调用 run()，就由谁在当前线程中执行。
+	- start()：启动一个新线程，让线程进入 RUNNABLE 状态，之后由 JVM/操作系统调度执行 run()。
+	- run()：只是一个普通方法调用，不会创建新线程。谁调用 run()，就由谁在当前线程中执行。
 
 5. `sleep()`、`wait()`、`join()`、`yield()` 有什么区别？
-   - sleep()：线程阻塞（或者轮询？实现忘了），不会释放锁
-   - wait()：线程释放锁，进入阻塞
-   - join：不知道
-   - yield：不知道
+	- sleep 是 Thread 的静态方法，让当前线程进入限时等待，不释放锁；
+	- wait 是 Object 的方法，必须在 synchronized 中调用，会释放对象锁，等待 notify 或 notifyAll 唤醒；
+	- join 是 Thread 的方法，表示当前线程等待目标线程执行结束；
+	- yield 是 Thread 的静态方法，表示当前线程主动让出 CPU，但只是提示调度器，不保证一定生效，也不会释放锁。
 
 6. `wait()` 为什么必须放在 synchronized 代码块或同步方法中？
-   - 不知道
+	   wait() 是 Object 的方法，作用是让当前线程释放某个对象的 monitor 并进入该对象的 WaitSet。
+	所以调用 wait() 前，线程必须先持有这个对象的锁，否则不知道要释放哪把锁，也无法保证等待和通知的正确配合。
+	如果没有持有锁就调用 wait()，会抛出 IllegalMonitorStateException。
 
 7. `notify()` 和 `notifyAll()` 有什么区别？
-   - notify()：随机叫醒一个线程
-   - notifyAll()：叫醒全部线程，惊群效应
+	- notify()：随机唤醒该对象 WaitSet 中的一个线程。
+	- notifyAll()：唤醒该对象 WaitSet 中的所有线程。
+	- 被唤醒的线程不会立刻继续执行，必须先重新竞争 synchronized 锁，拿到锁后才能从 wait() 返回。
+	- notifyAll() 可能造成大量线程同时竞争锁，也就是惊群效应，但可以避免某些场景下 notify 唤醒错误线程导致程序卡住。
 
 ### 二、JMM 与 volatile
 1. 什么是 Java 内存模型（JMM）？它主要解决什么问题？
