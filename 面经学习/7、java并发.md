@@ -198,16 +198,23 @@
 
 ### 五、ThreadLocal
 1. ThreadLocal 是什么？适合解决什么问题？
-   - 每个线程独有的变量。适合解决在一个线程内传递消息的问题。
+   - ThreadLocal 是线程本地变量工具，可以让每个线程都拥有一份互不影响的变量副本。
+	它适合在线程内部传递上下文信息，比如用户信息、请求上下文、数据库连接、事务信息等，避免方法层层传参。
 
 2. ThreadLocal 的底层结构是什么？
-   - 不知道
+   - 每个 Thread 对象内部都有一个 ThreadLocalMap。
+	ThreadLocalMap 的 key 是 ThreadLocal 对象的弱引用，value 是当前线程保存的变量值。
+	所以不是 ThreadLocal 自己持有一个全局 Map，而是每个线程内部维护自己的 ThreadLocalMap。
 
 3. ThreadLocal 为什么可能导致内存泄漏？
-   - 我的答案：
+   - ThreadLocalMap 的 key 是 ThreadLocal 的弱引用，如果外部 ThreadLocal 强引用被回收，key 会变成 null。
+	但 value 仍然被 ThreadLocalMap 强引用着。
+	
+	如果线程迟迟不结束，尤其在线程池中线程会被复用，ThreadLocalMap 也会长期存在，value 就可能无法被回收，造成内存泄漏。
 
 4. 使用 ThreadLocal 后为什么建议调用 `remove()`？
-   - 我的答案：
+   - 调用 remove() 会把当前线程 ThreadLocalMap 中对应的 Entry 清理掉，断开 value 的强引用。
+	在线程池场景下尤其重要，因为线程不会马上销毁，如果不 remove，旧请求的数据可能残留在线程中，既可能造成内存泄漏，也可能导致后续任务读到脏数据。
 
 ### 六、线程池
 1. 为什么要使用线程池？
