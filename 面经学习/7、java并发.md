@@ -125,56 +125,83 @@
 
 ### 三、synchronized
 1. synchronized 可以用在哪些地方？分别锁的是什么？
-   - 方法上：锁的是this（即引用方法的实例，静态方法锁的是Class类）
-   - 代码块：锁的是使用的Object类的Monitor
+	- 普通同步方法：锁当前实例对象 this。
+	- 静态同步方法：锁当前类的 Class 对象。
+	- 同步代码块：锁 synchronized(...) 中指定的对象。
 
 
 2. synchronized 如何保证原子性、可见性和有序性？
-   - 原子性：在synchronized范围内的代码只会被持有锁的线程执行，直到执行完毕或执行错误或调用wait()
-   - 可见性：保证只有持有锁的线程可见
-   - 有序性：synchronized之前的代码happens-before  synchronized内的代码
+	- 原子性：同一时刻只有一个线程能持有同一把锁并执行同步代码块。
+	- 可见性：线程释放锁前，会把同步代码中的修改刷新到主内存；其他线程获取同一把锁后，可以看到之前线程释放锁前的修改。
+	- 有序性：synchronized 通过 monitorenter/monitorexit 以及 happens-before 规则约束重排序。对同一把锁的解锁 happens-before 后续对这把锁的加锁。
 
 3. synchronized 为什么是可重入的？
-   - 它会指向一个Monitor对象，该Monitor对象会维护一个计数器，被锁一次就加1，解锁一次就减一，计数器为0时会释放锁
+   - 它会指向一个Monitor对象，该Monitor对象会维护一个计数器，被锁一次就加1，解锁一次就减一，计数器为0时会释放锁。如果持锁线程再次进入同一把锁保护的代码，不会被自己阻塞，只会让重入计数加一。
 
 4. synchronized 的锁升级过程是什么？
-   - jdk8时，只有单线程使用时，偏向锁，synchronized指向的Mark Word存储当前线程号；当有轻度竞争时，轻量级锁，Mark Word中存储Lock Record；当竞争激烈时，重量级锁，Mark Word指向Monitor对象
+   - JDK 8 中锁升级过程一般是：无锁 -> 偏向锁 -> 轻量级锁 -> 重量级锁。
+	偏向锁适合只有一个线程反复进入同步块的场景；出现竞争后会撤销偏向锁，升级为轻量级锁；轻量级锁通过 CAS 和自旋竞争，竞争激烈或自旋失败后膨胀为重量级锁，由 Monitor 参与阻塞和唤醒。
 
 5. 偏向锁、轻量级锁、重量级锁分别适合什么场景？
-   - 偏向锁：单线程使用
-   - 轻量级锁：竞争轻度
-   - 重量级锁：重度竞争
+	- 偏向锁：没有竞争，通常只有一个线程反复获取同一把锁。
+	- 轻量级锁：有少量竞争，线程持锁时间短，可以通过 CAS 和自旋避免阻塞。
+	- 重量级锁：竞争激烈或持锁时间较长，自旋不划算，需要阻塞和唤醒线程。
 
 6. 重量级锁中的 Monitor 大致包含哪些核心信息？
-   - 当前哪个线程使用
-   - 重入数
-   - 竞争队列：存储竞争锁失败的线程，锁释放后会从中选
+	- owner：当前持有锁的线程。
+	- recursions：重入次数。
+	- EntryList：等待竞争锁的线程。
+	- WaitSet：调用 wait() 后等待的线程。被 notify/notifyAll 唤醒后，还要重新竞争锁。
 
 7. synchronized 和 ReentrantLock 有什么区别？
-   - 我的答案：
+	- synchronized 是 JVM 关键字，使用简单，自动加锁和释放锁，异常时也会自动释放。
+	- ReentrantLock 是 JUC 提供的显式锁，需要手动 lock() 和 unlock()，通常要在 finally 中释放。
+	- ReentrantLock 支持公平锁和非公平锁，synchronized 一般是非公平的。
+	- ReentrantLock 支持可中断获取锁、超时获取锁、尝试获取锁 tryLock()。
+	- ReentrantLock 可以配合多个 Condition 实现更灵活的等待/通知机制，而 synchronized 只能配合一个对象的 wait/notify。
+	- 两者都是可重入锁。
 
 ### 四、CAS 与原子类
 1. CAS 是什么？它包含哪三个操作数？
-   - 我的答案：
+	CAS 是 Compare And Swap，比较并交换，是一种乐观锁思想。
+	
+	它包含三个操作数：
+	- V：内存中的当前值。
+	- A：预期旧值。
+	- B：要修改的新值。
+	
+	执行时会比较 V 是否等于 A：
+	- 如果相等，说明没有被其他线程修改过，就把 V 更新为 B。
+	- 如果不相等，说明被其他线程改过，更新失败，通常会重试。
 
 2. CAS 为什么能保证原子性？
-   - 我的答案：
+   - 由硬件实现
 
 3. CAS 有哪些缺点？
-   - 我的答案：
+	- ABA 问题：值从 A 变成 B，又变回 A，CAS 会误以为没有变化。
+	- 自旋开销大：竞争激烈时，大量线程反复重试，会浪费 CPU。
+	- 只能保证一个共享变量的原子更新：多个变量的一致性需要额外机制，例如锁或 AtomicReference 封装对象。
 
 4. 什么是 ABA 问题？如何解决？
-   - 我的答案：
+	ABA 问题是指一个变量原来是 A，期间被其他线程改成 B，又改回 A。当前线程执行 CAS 时发现值还是 A，就以为没有被修改过，但实际上它已经发生过变化。
+	
+	解决方式：
+	- 加版本号，每次修改时版本号递增。
+	- Java 中可以使用 AtomicStampedReference(给引用额外绑定一个版本号stamp)，通过值 + 版本号一起判断。
+	- 也可以用 AtomicMarkableReference(给引用额外绑定一个boolean标记mark)，通过值 + 标记位判断是否发生过变化。
 
 5. AtomicInteger 的底层原理是什么？
-   - 我的答案：
+	AtomicInteger 底层主要依赖 volatile + CAS：
+	- value 字段用 volatile 修饰，保证可见性。
+	- 更新时使用 CAS 原子操作，比如 compareAndSet。
+	- 如果 CAS 失败，说明其他线程已经修改过，会在循环中重新读取最新值并重试。
 
 ### 五、ThreadLocal
 1. ThreadLocal 是什么？适合解决什么问题？
-   - 我的答案：
+   - 每个线程独有的变量。适合解决在一个线程内传递消息的问题。
 
 2. ThreadLocal 的底层结构是什么？
-   - 我的答案：
+   - 不知道
 
 3. ThreadLocal 为什么可能导致内存泄漏？
    - 我的答案：
