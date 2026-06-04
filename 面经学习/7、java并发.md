@@ -218,44 +218,79 @@
 
 ### 六、线程池
 1. 为什么要使用线程池？
-   - 线程的创建销毁都要进入内核态。使用线程池重复使用线程，减少进入内核态次数
+   - 复用线程，避免频繁创建和销毁线程带来的开销。
+   - 控制线程数量，防止线程无限创建导致 CPU 上下文切换过多、内存占用过高，甚至系统资源耗尽。
+   - 统一管理任务，比如任务排队、拒绝策略、线程命名、异常处理和线程池关闭。
 
 2. 线程池的七大核心参数是什么？
-   - 
+   - `corePoolSize`：核心线程数，线程池中长期保留的线程数量。
+   - `maximumPoolSize`：最大线程数，线程池最多能创建的线程数量。
+   - `keepAliveTime`：非核心线程空闲多久后会被回收。
+   - `unit`：`keepAliveTime` 的时间单位。
+   - `workQueue`：任务队列，核心线程都忙时，用来存放等待执行的任务。
+   - `threadFactory`：线程工厂，用来创建线程，可以设置线程名、是否为守护线程等。
+   - `handler`：拒绝策略，当线程数达到最大线程数，并且任务队列也满了，就执行拒绝策略。
 
 3. 线程池提交任务后的执行流程是什么？
-   - 我的答案：
+   - 如果当前线程数小于 `corePoolSize`，直接创建核心线程执行任务。
+   - 如果当前线程数已经达到 `corePoolSize`，就尝试把任务放入 `workQueue`。
+   - 如果任务队列已满，并且当前线程数小于 `maximumPoolSize`，就创建非核心线程执行任务。
+   - 如果任务队列已满，并且当前线程数也达到 `maximumPoolSize`，就执行拒绝策略。
+   - 记忆：先核心线程，再任务队列，再最大线程，最后拒绝策略。
 
 4. 线程池有哪些拒绝策略？
-   - 我的答案：
+   - `AbortPolicy`：默认策略，直接抛出 `RejectedExecutionException`。
+   - `CallerRunsPolicy`：由提交任务的线程自己执行这个任务。好处是不会丢任务，还能降低任务提交速度。
+   - `DiscardPolicy`：直接丢弃当前任务，不抛异常。
+   - `DiscardOldestPolicy`：丢弃队列中最早的任务，然后尝试重新提交当前任务。
 
 5. 为什么不推荐使用 `Executors` 创建线程池？
-   - 我的答案：
+   - `Executors` 隐藏了线程池关键参数，容易导致资源耗尽。
+   - `newFixedThreadPool` 和 `newSingleThreadExecutor` 使用无界 `LinkedBlockingQueue`。如果任务提交速度大于处理速度，任务会无限堆积，可能导致 OOM。
+   - `newCachedThreadPool` 使用 `SynchronousQueue`，并且 `maximumPoolSize` 是 `Integer.MAX_VALUE`。如果任务很多，可能创建大量线程，导致系统资源耗尽。
+   - 更推荐手动创建 `ThreadPoolExecutor`，显式指定核心线程数、最大线程数、队列长度、线程工厂和拒绝策略。
 
 6. 核心线程数和最大线程数应该如何设置？
-   - 我的答案：
+   - 线程池参数不能固定写死，要根据任务类型、CPU 核数、IO 等待时间、机器资源和压测结果来设置。
+   - CPU 密集型任务：线程数一般接近 CPU 核数，比如 CPU 核数 + 1，避免线程太多导致频繁上下文切换。
+   - IO 密集型任务：线程数可以大于 CPU 核数，比如 2 * CPU 核数，因为线程经常在等待网络、数据库、磁盘 IO，不会一直占用 CPU。
+   - 估算公式：线程数 = CPU 核数 * (1 + 等待时间 / 计算时间)。
+   - 最终还是要结合业务 QPS、任务耗时、队列长度、监控和压测结果调整。
 
 7. `execute()` 和 `submit()` 有什么区别？
-   - 我的答案：
+   - `execute()` 是 `Executor` 接口的方法，只能提交 `Runnable` 任务，没有返回值。任务抛出异常时，异常会直接在线程中抛出。
+   - `submit()` 是 `ExecutorService` 接口的方法，可以提交 `Runnable` 或 `Callable` 任务，会返回 `Future`。任务抛出异常时，异常会被封装到 `Future` 中，调用 `future.get()` 时才会抛出 `ExecutionException`。
 
 8. 线程池如何优雅关闭？
-   - 我的答案：
+   - `shutdown()`：不再接收新任务，但会继续执行已经提交的任务，包括正在执行的任务和队列中等待的任务。
+   - `shutdownNow()`：尝试立即关闭线程池，会尝试中断正在执行的任务，并返回队列中还没开始执行的任务。
+   - `awaitTermination()`：等待线程池在指定时间内关闭完成。
+   - 优雅关闭流程：先调用 `shutdown()`，再调用 `awaitTermination()` 等待已有任务执行完成；如果超时还没关闭，再调用 `shutdownNow()` 尝试中断任务；捕获 `InterruptedException` 后，需要重新设置中断标记。
 
 ### 七、AQS 与常见 JUC 工具
 1. AQS 是什么？它的核心思想是什么？
-   - 我的答案：
+   - AQS 是 AbstractQueuedSynchronizer，抽象队列同步器，是 JUC 中很多锁和同步工具的基础框架。
+   - 它用 volatile int state 表示同步状态，用 CAS 修改 state。
+   - 获取失败的线程会进入 FIFO 等待队列，释放同步状态后会唤醒后继线程。
 
 2. ReentrantLock 的加锁过程和 AQS 有什么关系？
-   - 我的答案：
+   - ReentrantLock 底层基于 AQS。
+   - 加锁时通过 CAS 修改 state；重入时 state 加 1；竞争失败时进入 AQS 队列等待。
+   - 解锁时 state 减 1，减到 0 才真正释放锁，并唤醒后继线程。
 
 3. 公平锁和非公平锁有什么区别？
-   - 我的答案：
+   - 公平锁按等待队列顺序获取锁，尽量先来先得。
+   - 非公平锁允许新来的线程先尝试抢锁，抢不到再排队。
+   - 非公平锁吞吐量通常更高，但可能让部分线程等待更久。
 
 4. CountDownLatch、CyclicBarrier、Semaphore 分别适合什么场景？
-   - 我的答案：
+   - CountDownLatch：一个线程等待多个线程完成，计数器不能重置。
+   - CyclicBarrier：多个线程互相等待，到齐后一起继续，可以重复使用。
+   - Semaphore：控制同时访问资源的线程数量。
 
 5. BlockingQueue 有什么作用？在线程池中扮演什么角色？
-   - 我的答案：
+   - BlockingQueue 是阻塞队列，队列空时取元素会阻塞，队列满时放元素可能阻塞。
+   - 在线程池中，它用于缓存等待执行的任务。
 
 ### 八、并发容器
 1. HashMap 为什么线程不安全？
