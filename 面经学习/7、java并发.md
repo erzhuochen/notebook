@@ -590,20 +590,87 @@ CompletableFuture<Integer> f = CompletableFuture
    - 所以 AQS 可以理解为用队列管理等待线程，用 `LockSupport` 完成线程的阻塞和唤醒。
 
 ### 十四、了解即可的补充点
+#### 核心记忆
+- `ReadWriteLock`：读多写少，读读共享，读写互斥，写写互斥。
+- `StampedLock`：在读多写少场景下提供乐观读，读之前拿戳，读完校验戳。
+- `LongAdder`：把一个热点计数拆成多个 Cell，减少高并发 CAS 竞争。
+- `ConcurrentLinkedQueue`：基于 CAS 的线程安全非阻塞队列。
+- `ThreadLocalRandom`：让每个线程使用自己的随机数种子，减少竞争。
+- 虚拟线程：适合大量阻塞 IO，不适合 CPU 密集型任务。
+
 ##### ReadWriteLock 适合什么场景？
-   - 我的答案：
+   - `ReadWriteLock` 是读写锁，常见实现是 `ReentrantReadWriteLock`。
+   - 它把锁拆成读锁和写锁：
+     - 多个线程可以同时持有读锁，读读共享。
+     - 写锁是独占的，写写互斥。
+     - 读锁和写锁互斥，读写不能同时进行。
+   - 适合读多写少的场景，例如配置缓存、字典表、本地缓存数据。
+   - 如果写操作很多，读写锁优势不明显，甚至可能因为维护读写状态而增加开销。
+   - 面试总结：`ReadWriteLock` 通过允许多个读线程并发执行，提高读多写少场景下的吞吐量。
 
 ##### StampedLock 的乐观读是什么？
-   - 我的答案：
+   - `StampedLock` 是 Java 8 引入的锁，提供写锁、悲观读锁和乐观读。
+   - 乐观读不是传统意义上的加锁，而是先通过 `tryOptimisticRead()` 获取一个版本戳 `stamp`。
+   - 读取数据后，再通过 `validate(stamp)` 校验读取期间有没有写操作发生：
+     - 如果校验成功，说明读取期间没有写入，可以直接使用读取结果。
+     - 如果校验失败，说明读取期间发生了写入，需要退化为悲观读锁重新读取。
+   - 适合读很多、写很少，并且允许读完后再校验的场景。
+   - 注意：`StampedLock` 不可重入，使用时要小心释放锁。
+   - 面试总结：`StampedLock` 的乐观读是“先不加锁读，读完再校验”，减少读操作加锁开销。
 
 ##### LongAdder 为什么在高并发计数场景下可能比 AtomicLong 更快？
-   - 我的答案：
+   - `AtomicLong` 只有一个共享变量，多个线程同时更新时都会对同一个值进行 CAS。
+   - 并发竞争激烈时，CAS 失败的线程会不断重试，浪费 CPU。
+   - `LongAdder` 的思想是分散热点：
+     - 低竞争时直接更新 `base`。
+     - 高竞争时把计数分散到多个 `Cell` 中，不同线程尽量更新不同的 `Cell`。
+     - 最终求和时，把 `base` 和所有 `Cell` 的值加起来。
+   - 所以高并发写多读少的计数场景下，`LongAdder` 通常比 `AtomicLong` 吞吐量更高。
+   - 缺点是 `sum()` 不是严格实时一致的，因为求和过程中其他线程可能还在更新。
+   - 面试总结：`AtomicLong` 是多个线程抢一个变量，`LongAdder` 是把一个热点拆成多个分段计数，最后再汇总。
 
 ##### ConcurrentLinkedQueue 是什么？
-   - 我的答案：
+   - `ConcurrentLinkedQueue` 是线程安全的无界非阻塞队列。
+   - 它基于链表和 CAS 实现，遵循 FIFO，先进先出。
+   - 常用方法：
+     - `offer()`：入队。
+     - `poll()`：出队，如果队列为空则返回 `null`，不会阻塞。
+     - `peek()`：查看队头元素，不移除。
+   - 它和 `BlockingQueue` 的区别：
+     - `ConcurrentLinkedQueue` 是非阻塞队列，队列为空时 `poll()` 直接返回 `null`。
+     - `BlockingQueue` 是阻塞队列，队列为空时 `take()` 会阻塞等待。
+   - 适合高并发下的非阻塞生产消费场景，但如果需要阻塞等待或限流，更适合使用 `BlockingQueue`。
+   - 面试总结：`ConcurrentLinkedQueue` 是基于 CAS 的线程安全非阻塞 FIFO 队列。
 
 ##### ThreadLocalRandom 解决了什么问题？
-   - 我的答案：
+   - 普通 `Random` 在多线程下共享同一个随机数生成器，多个线程更新同一个种子，可能产生竞争。
+   - `ThreadLocalRandom` 为每个线程维护自己的随机数种子，避免多个线程竞争同一个 `Random` 实例。
+   - 使用方式：
+
+```java
+int num = ThreadLocalRandom.current().nextInt(100);
+```
+
+   - 适合多线程环境下生成普通随机数，例如随机重试间隔、负载均衡随机选择等。
+   - 注意：`ThreadLocalRandom` 不适合安全敏感场景，密码、token 等应使用 `SecureRandom`。
+   - 面试总结：`ThreadLocalRandom` 通过线程隔离随机数种子，减少多线程生成随机数时的竞争。
 
 ##### Java 虚拟线程适合什么场景？
-   - 我的答案：
+   - 虚拟线程是 Java 21 正式引入的轻量级线程，由 JVM 管理，不是一一对应操作系统线程。
+   - 它适合大量阻塞 IO 场景，例如：
+     - Web 请求处理。
+     - RPC 调用。
+     - 数据库访问。
+     - 文件或网络 IO。
+   - 传统平台线程成本较高，线程数量太多会带来较大的内存和上下文切换开销。
+   - 虚拟线程成本更低，可以用“一个请求一个虚拟线程”的方式写同步代码，同时获得更好的并发能力。
+   - 但虚拟线程不适合 CPU 密集型任务。CPU 密集型任务瓶颈在 CPU 核心数，不会因为创建更多虚拟线程而变快。
+   - 使用示例：
+
+```java
+try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+    executor.submit(() -> handleRequest());
+}
+```
+
+   - 面试总结：虚拟线程适合大量阻塞 IO，可以降低线程成本；不适合用来提升 CPU 密集型任务性能。
