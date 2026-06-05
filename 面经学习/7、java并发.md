@@ -370,45 +370,224 @@
 
 ### 十一、线程池补充
 ##### 线程池为什么是先放入阻塞队列，再创建非核心线程？
-   - 
+   - `ThreadPoolExecutor` 提交任务后的大致流程：
+     - 当前线程数小于 `corePoolSize`：创建核心线程执行任务。
+     - 当前线程数大于等于 `corePoolSize`：优先把任务放入阻塞队列。
+     - 阻塞队列满了，并且当前线程数小于 `maximumPoolSize`：创建非核心线程执行任务。
+     - 当前线程数已经达到 `maximumPoolSize`：执行拒绝策略。
+   - 这样设计是为了优先复用核心线程，减少频繁创建线程带来的开销。
+   - 只有当阻塞队列也满了，说明任务积压比较明显，线程池才会创建非核心线程来分担压力。
+   - 阻塞队列的选择会直接影响线程池是否容易创建非核心线程。
 
 ##### 不同的阻塞队列会如何影响线程池行为？
-   - 我的答案：
+   - `ArrayBlockingQueue`：有界数组队列。队列满了以后，线程池才会创建非核心线程；如果线程数也达到上限，就触发拒绝策略。适合需要控制任务积压量的场景。
+   - `LinkedBlockingQueue`：链表队列。如果不指定容量，默认容量非常大，任务会一直排队，通常不容易创建非核心线程，导致 `maximumPoolSize` 基本失效，也可能因为任务堆积过多导致 OOM。
+   - `SynchronousQueue`：不存储任务，来一个任务必须立刻交给线程执行。如果没有空闲线程，就会创建新线程，直到达到 `maximumPoolSize`。`newCachedThreadPool` 使用的就是它。
+   - `PriorityBlockingQueue`：优先级队列，任务按优先级执行，不是严格先进先出。它通常是无界队列，也要注意任务堆积风险。
+   - 总结：有界队列更容易触发扩容和拒绝策略；无界队列容易堆积任务；`SynchronousQueue` 更容易创建新线程；优先级队列会改变任务执行顺序。
 
 ##### 线程池中的任务抛出异常会发生什么？
-   - 我的答案：
+   - 使用 `execute()` 提交任务时，任务中抛出的运行时异常会直接暴露出来，执行该任务的工作线程通常会终止，线程池会根据需要补充新的工作线程。
+   - 使用 `submit()` 提交任务时，异常会被封装到 `Future` 中，不会直接抛出或打印；只有调用 `Future.get()` 时，才会以 `ExecutionException` 的形式抛出。
+   - 所以 `execute()` 的异常更容易被发现，而 `submit()` 如果不调用 `get()`，异常可能被忽略。
+   - 实际开发中可以在任务内部 `try-catch`，或者调用 `Future.get()` 获取异常，也可以重写 `afterExecute()` 统一处理任务异常。
 
 ##### `shutdown()` 和 `shutdownNow()` 有什么区别？
-   - 我的答案：
+   - `shutdown()` 是温和关闭：
+     - 不再接收新任务。
+     - 已经提交的任务会继续执行。
+     - 队列中等待的任务也会继续执行。
+     - 不会主动中断正在运行的任务。
+   - `shutdownNow()` 是尝试立即关闭：
+     - 不再接收新任务。
+     - 尝试中断正在执行的任务。
+     - 返回队列中还没有开始执行的任务列表。
+   - `shutdownNow()` 不是强制杀死线程，它只是调用 `interrupt()` 尝试中断，任务是否停止取决于任务代码是否响应中断。
 
 ##### 线程池如何优雅关闭？
-   - 我的答案：
+   - 一般先调用 `shutdown()`，停止接收新任务，让已经提交的任务继续执行。
+   - 然后调用 `awaitTermination()` 等待一段时间。
+   - 如果超时仍然没有结束，再调用 `shutdownNow()` 尝试中断正在执行的任务。
+   - 如果当前关闭线程自己被中断，要重新设置中断标志。
+
+```java
+executor.shutdown();
+try {
+    if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+        executor.shutdownNow();
+        if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+            // 记录日志：线程池没有正常关闭
+        }
+    }
+} catch (InterruptedException e) {
+    executor.shutdownNow();
+    Thread.currentThread().interrupt();
+}
+```
+
+   - 总结：线程池关闭的顺序通常是 `shutdown()` -> `awaitTermination()` -> `shutdownNow()`，最后注意处理中断标志。
 
 ### 十二、Future 与 CompletableFuture
+#### 核心记忆
+- `Future`：异步结果凭证，能拿结果，但 `get()` 会阻塞，编排能力弱。
+- `CompletableFuture`：增强版 Future，核心能力是异步回调、任务串联、任务组合、异常处理。
+- 记忆口诀：**Future 管结果，CompletableFuture 管流程。**
+
 ##### Future 有什么作用？有什么缺点？
-   - 我的答案：
+   - `Future` 表示一个异步任务的执行结果。任务提交后，主线程可以先去做别的事，之后再通过 `Future` 获取结果。
+   - 常用方法：
+     - `get()`：阻塞等待任务完成并获取结果。
+     - `get(timeout, unit)`：最多等待指定时间，超时抛异常。
+     - `cancel()`：尝试取消任务。
+     - `isDone()`：判断任务是否完成。
+     - `isCancelled()`：判断任务是否被取消。
+   - 缺点：
+     - `get()` 会阻塞，异步任务最后又可能变成同步等待。
+     - 多个任务之间不好编排，比如任务 A 完成后执行任务 B、任务 A 和 B 都完成后汇总结果。
+     - 异常处理不够方便，`submit()` 提交的任务异常会封装在 `Future` 里，通常要调用 `get()` 才能感知。
+   - 面试总结：`Future` 能表示异步结果，但更像“结果占位符”，不擅长任务编排。
 
 ##### CompletableFuture 解决了什么问题？
-   - 我的答案：
+   - `CompletableFuture` 是对 `Future` 的增强，解决的是异步任务编排问题。
+   - 它不要求主线程一直阻塞等待结果，而是可以在任务完成后自动执行后续动作。
+   - 它常用于：
+     - 异步执行任务：`supplyAsync()`、`runAsync()`。
+     - 转换任务结果：`thenApply()`。
+     - 消费任务结果：`thenAccept()`。
+     - 串联依赖任务：`thenCompose()`。
+     - 合并独立任务：`thenCombine()`。
+     - 等待多个任务：`allOf()`。
+     - 等待任意一个任务：`anyOf()`。
+     - 处理异常：`exceptionally()`、`handle()`、`whenComplete()`。
+   - 面试总结：`CompletableFuture` 让异步任务从“提交后等结果”变成“完成后自动流转”。
 
 ##### 如何使用 CompletableFuture 并行执行多个任务并汇总结果？
-   - 我的答案：
+   - 思路：
+     - 用多个 `supplyAsync()` 并行提交任务。
+     - 用 `CompletableFuture.allOf()` 等待所有任务完成。
+     - 在后续回调中分别 `join()` 每个任务的结果并汇总。
+   - 注意：`allOf()` 返回的是 `CompletableFuture<Void>`，只表示“全部完成”，不会直接帮我们收集每个任务的返回值。
+
+```java
+CompletableFuture<Integer> f1 = CompletableFuture.supplyAsync(() -> queryA());
+CompletableFuture<Integer> f2 = CompletableFuture.supplyAsync(() -> queryB());
+CompletableFuture<Integer> f3 = CompletableFuture.supplyAsync(() -> queryC());
+
+CompletableFuture<Void> all = CompletableFuture.allOf(f1, f2, f3);
+
+CompletableFuture<Integer> result = all.thenApply(v ->
+        f1.join() + f2.join() + f3.join()
+);
+```
+
+   - `join()` 和 `get()` 都可以获取结果，区别是 `get()` 会抛受检异常，`join()` 抛运行时异常 `CompletionException`。
+   - 实际开发中建议传入自定义线程池，不要所有异步任务都使用默认的 `ForkJoinPool.commonPool()`。
+
+```java
+CompletableFuture<Integer> f = CompletableFuture.supplyAsync(() -> queryA(), executor);
+```
 
 ##### CompletableFuture 中 `thenApply`、`thenAccept`、`thenCompose`、`thenCombine` 大致有什么区别？
-   - 我的答案：
+   - 记忆口诀：**Apply 转换，Accept 消费，Compose 串行，Combine 合并。**
+
+| 方法 | 作用 | 适用场景 |
+| --- | --- | --- |
+| `thenApply()` | 转换上一步结果，有返回值 | A 的结果加工成 B |
+| `thenAccept()` | 消费上一步结果，无返回值 | 拿结果打印、写日志、发通知 |
+| `thenCompose()` | 串联两个有依赖的异步任务 | 第二个任务依赖第一个任务结果 |
+| `thenCombine()` | 合并两个独立异步任务结果 | 两个任务并行执行后汇总 |
+
+   - `thenApply()`：对上一步结果进行转换，有入参，也有返回值。
+
+```java
+CompletableFuture<Integer> f = CompletableFuture
+        .supplyAsync(() -> 10)
+        .thenApply(x -> x * 2); // 结果是 20
+```
+
+   - `thenAccept()`：消费上一步结果，有入参但没有返回值，返回 `CompletableFuture<Void>`。
+
+```java
+CompletableFuture<Void> f = CompletableFuture
+        .supplyAsync(() -> "hello")
+        .thenAccept(s -> System.out.println(s));
+```
+
+   - `thenCompose()`：用于串联两个有依赖关系的异步任务。第二个异步任务依赖第一个任务的结果。
+
+```java
+CompletableFuture<User> f = CompletableFuture
+        .supplyAsync(() -> queryUserId())
+        .thenCompose(userId -> CompletableFuture.supplyAsync(() -> queryUser(userId)));
+```
+
+   - `thenCombine()`：用于合并两个互相独立的异步任务结果。两个任务可以并行执行，完成后再汇总。
+
+```java
+CompletableFuture<Integer> f1 = CompletableFuture.supplyAsync(() -> 10);
+CompletableFuture<Integer> f2 = CompletableFuture.supplyAsync(() -> 20);
+
+CompletableFuture<Integer> result = f1.thenCombine(f2, (a, b) -> a + b);
+```
+
+##### CompletableFuture 常见异常处理方法有哪些？
+   - `exceptionally()`：发生异常时返回一个兜底结果，相当于异常恢复。
+
+```java
+CompletableFuture<Integer> f = CompletableFuture
+        .supplyAsync(() -> 1 / 0)
+        .exceptionally(e -> 0);
+```
+
+   - `handle()`：无论成功还是失败都会执行，可以拿到正常结果或异常，并返回新结果。
+
+```java
+CompletableFuture<Integer> f = CompletableFuture
+        .supplyAsync(() -> queryA())
+        .handle((result, ex) -> ex == null ? result : 0);
+```
+
+   - `whenComplete()`：无论成功还是失败都会执行，适合记录日志或收尾，但一般不改变结果。
+
+```java
+CompletableFuture<Integer> f = CompletableFuture
+        .supplyAsync(() -> queryA())
+        .whenComplete((result, ex) -> {
+            // 记录日志或做收尾动作
+        });
+```
+
+   - 记忆区别：
+     - `exceptionally()`：出错后兜底。
+     - `handle()`：成功失败都处理，并返回新结果。
+     - `whenComplete()`：成功失败都观察，通常用于日志和收尾。
 
 ### 十三、LockSupport
 ##### LockSupport 是什么？
-   - 我的答案：
+   - `LockSupport` 是 JUC 提供的线程阻塞和唤醒工具，底层常用于实现锁和同步器。
+   - 它可以让指定线程挂起，也可以唤醒指定线程。
+   - AQS、ReentrantLock 等并发组件底层都会用 `LockSupport` 来实现线程的阻塞和唤醒。
+   - 可以把它理解为比 `wait()` / `notify()` 更底层、更灵活的线程调度工具。
 
 ##### `park()` 和 `unpark()` 有什么作用？
-   - 我的答案：
+   - `park()`：阻塞当前线程。
+   - `unpark(thread)`：唤醒指定线程。
+   - `LockSupport` 使用的是许可证机制，每个线程最多只有一个许可证。
+   - 如果线程已经有许可证，调用 `park()` 会直接消耗许可证并返回，不会阻塞。
+   - 如果线程没有许可证，调用 `park()` 会阻塞，直到其他线程调用 `unpark()`、当前线程被中断，或者出现虚假唤醒。
 
 ##### LockSupport 和 `wait()` / `notify()` 有什么区别？
-   - 我的答案：
+   - `wait()` / `notify()` 必须在 synchronized 代码块或同步方法中使用，调用前必须持有对象锁；`LockSupport` 不要求持有锁。
+   - `wait()` 会释放当前对象锁；`park()` 只是阻塞当前线程，不会主动释放已经持有的锁。
+   - `notify()` 随机唤醒等待队列中的一个线程；`unpark(thread)` 可以唤醒指定线程。
+   - `notify()` 不能早于 `wait()` 调用，否则通知会丢失；`unpark()` 可以先于 `park()` 调用，因为许可证会被保留下来。
+   - `park()` 被中断后会返回，但不会抛出异常，中断标志仍然为 `true`；`wait()` 被中断会抛出 `InterruptedException`，并清除中断标志。
 
 ##### AQS 为什么会用到 LockSupport？
-   - 我的答案：
+   - AQS 中获取锁失败的线程会进入等待队列。
+   - 这些线程不能一直自旋，否则会浪费 CPU，所以 AQS 会使用 `LockSupport.park()` 挂起等待线程。
+   - 当锁被释放或同步状态变化时，AQS 会使用 `LockSupport.unpark()` 唤醒队列中的后继线程，让它重新竞争锁。
+   - 所以 AQS 可以理解为用队列管理等待线程，用 `LockSupport` 完成线程的阻塞和唤醒。
 
 ### 十四、了解即可的补充点
 ##### ReadWriteLock 适合什么场景？
