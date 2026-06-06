@@ -1,351 +1,246 @@
-# 9. Spring 系统学习笔记
+# 9、Spring 系统学习笔记
+
+## 一、学习目标
+
+学完 Spring 后，要能讲清楚四条主线：
+
+1. Spring 容器如何创建和管理 Bean。
+2. AOP 如何在不改业务代码的情况下增强方法。
+3. Spring 事务如何生效，为什么会失效。
+4. Spring MVC 和 Spring Boot 的核心流程是什么。
+
+## 二、一周学习路线
 
-学习方式：这部分属于新学内容，先建立知识体系，再补面试问答。
+| 天数 | 主题 | 必须掌握的问题 |
+| --- | --- | --- |
+| Day 8 | IoC 容器 | BeanDefinition、BeanFactory、ApplicationContext |
+| Day 9 | Bean 生命周期 | 实例化、属性填充、初始化、销毁 |
+| Day 10 | 循环依赖 | 三级缓存、提前暴露、AOP 影响 |
+| Day 11 | AOP | JDK 动态代理、CGLIB、通知、调用链 |
+| Day 12 | Spring 事务 | 传播行为、隔离级别、失效场景 |
+| Day 13 | Spring MVC | DispatcherServlet、HandlerMapping、HandlerAdapter |
+| Day 14 | Spring Boot 自动配置 | starter、自动配置类、条件装配 |
 
-## 学习目标
+## 三、知识树
 
-学完后需要能回答：
+### 1. IoC 容器
 
-- Spring IOC 是什么？
-- Bean 生命周期是什么？
-- Spring 如何解决循环依赖？
-- AOP 是什么，底层如何实现？
-- Spring 事务为什么会失效？
-- Spring MVC 请求流程是什么？
-- Spring Boot 自动装配是什么？
+- IoC 和 DI
+- BeanDefinition
+- BeanFactory
+- ApplicationContext
+- BeanPostProcessor
+- FactoryBean
 
----
+### 2. Bean 生命周期
 
-# 一、Spring 核心思想
+- 实例化
+- 属性填充
+- Aware 回调
+- BeanPostProcessor 前置处理
+- 初始化
+- BeanPostProcessor 后置处理
+- 使用
+- 销毁
 
-## IOC
+### 3. 循环依赖
 
-IOC 是控制反转，把对象创建和依赖管理交给 Spring 容器，而不是业务代码自己 new。
+- 构造器循环依赖
+- setter 循环依赖
+- 三级缓存
+- 提前暴露对象
+- AOP 代理对象
 
-好处：
+### 4. AOP
 
-- 降低对象之间的耦合。
-- 统一管理对象生命周期。
-- 方便做 AOP、事务、配置注入、测试替换。
+- 切面
+- 切点
+- 通知
+- 连接点
+- 目标对象
+- 代理对象
+- JDK 动态代理
+- CGLIB
 
-## DI
+### 5. Spring 事务
 
-DI 是依赖注入，是 IOC 的具体实现方式。
+- 声明式事务
+- PlatformTransactionManager
+- 传播行为
+- 隔离级别
+- 回滚规则
+- 事务失效场景
 
-常见方式：
+### 6. Spring MVC
 
-- 构造器注入。
-- Setter 注入。
-- 字段注入。
+- DispatcherServlet
+- HandlerMapping
+- HandlerAdapter
+- 参数解析
+- 返回值处理
+- 消息转换器
+- 异常处理
 
-推荐：
+### 7. Spring Boot 自动配置
 
-- 业务代码优先使用构造器注入，依赖更明确，也更利于测试。
+- starter
+- 自动配置类
+- 条件装配
+- 配置属性绑定
+- 约定大于配置
 
----
+## 四、高频面试题
 
-# 二、Bean 生命周期
+### 1. 什么是 IoC？
 
-## 核心主线
+简答版：
+IoC 是控制反转，把对象创建和依赖管理的控制权从程序代码交给 Spring 容器。
 
-```text
-扫描 Bean 定义
--> 实例化
--> 属性填充
--> Aware 回调
--> BeanPostProcessor 前置处理
--> 初始化
--> BeanPostProcessor 后置处理
--> 使用 Bean
--> 销毁 Bean
-```
+展开版：
+传统写法中，对象通常自己 new 依赖对象。使用 Spring 后，对象由容器创建，依赖也由容器注入。这样可以降低对象之间的耦合，让配置、生命周期、增强能力都交给容器统一管理。
 
-## 关键阶段
+常见追问：
+- IoC 和 DI 有什么关系？
+- BeanFactory 和 ApplicationContext 有什么区别？
+- Spring 为什么能管理对象生命周期？
 
-### BeanDefinition
+### 2. BeanFactory 和 ApplicationContext 有什么区别？
 
-Spring 会先把类信息解析成 BeanDefinition，里面包含类名、作用域、依赖、初始化方法等元信息。
+简答版：
+BeanFactory 是 Spring 最基础的容器接口，提供 Bean 创建和获取能力；ApplicationContext 是更完整的应用上下文，扩展了事件、国际化、资源加载等能力。
 
-### 实例化
+展开版：
+BeanFactory 偏底层，强调 Bean 管理能力。ApplicationContext 继承并扩展 BeanFactory，实际开发中更常用。它通常会在启动时完成单例 Bean 的创建，还支持环境配置、事件发布、AOP 自动代理等能力。
 
-创建对象本身，相当于调用构造方法。
+常见追问：
+- BeanFactory 是懒加载吗？
+- ApplicationContext 启动时做了什么？
+- BeanDefinition 是什么？
 
-### 属性填充
+### 3. Spring Bean 生命周期是什么？
 
-给对象注入依赖。
+简答版：
+Bean 生命周期大致包括实例化、属性填充、Aware 回调、初始化前置处理、初始化、初始化后置处理、使用、销毁。
 
-### 初始化
+展开版：
+Spring 先根据 BeanDefinition 创建对象，然后进行依赖注入。接着执行各种 Aware 接口回调，再经过 BeanPostProcessor 前置处理，执行初始化方法，然后经过后置处理，最后 Bean 可以被使用。容器关闭时，会执行销毁回调。
 
-执行初始化回调，例如：
+常见追问：
+- BeanPostProcessor 有什么作用？
+- InitializingBean 和 init-method 有什么区别？
+- AOP 代理通常在哪个阶段创建？
 
-- `@PostConstruct`
-- `InitializingBean`
-- 自定义 init-method
+### 4. Spring 如何解决循环依赖？
 
-### BeanPostProcessor
+简答版：
+Spring 主要通过三级缓存解决单例 Bean 的 setter 循环依赖，本质是提前暴露尚未完全初始化的 Bean。
 
-Bean 后置处理器可以在初始化前后增强 Bean。AOP 代理对象通常也和这个阶段有关。
+展开版：
+Spring 创建单例 Bean 时，会先实例化对象，再填充属性。对于 setter 循环依赖，A 创建后可以提前暴露引用，B 注入 A 时可以从缓存中拿到这个早期引用。三级缓存还可以处理 AOP 场景，确保最终注入的是代理对象而不是原始对象。
 
-### 销毁
+常见追问：
+- 构造器循环依赖为什么解决不了？
+- 三级缓存分别存什么？
+- 为什么需要第三级缓存？
 
-容器关闭时执行销毁逻辑，例如：
+### 5. 什么是 AOP？
 
-- `@PreDestroy`
-- `DisposableBean`
-- destroy-method
+简答版：
+AOP 是面向切面编程，通过代理在方法执行前后织入增强逻辑，比如事务、日志、权限校验。
 
-## 易错点
+展开版：
+AOP 把通用逻辑从业务代码中抽离出来，通过切点匹配目标方法，再用通知定义增强行为。Spring AOP 主要基于动态代理实现：有接口时通常用 JDK 动态代理，没有接口时使用 CGLIB。
 
-- 实例化和初始化不是一回事。
-- AOP 代理对象通常不是原始对象本身。
-- Bean 生命周期中，后置处理器非常关键。
+常见追问：
+- JDK 动态代理和 CGLIB 有什么区别？
+- Spring AOP 和 AspectJ 有什么区别？
+- 自调用为什么可能导致 AOP 失效？
 
----
+### 6. Spring 事务是如何实现的？
 
-# 三、循环依赖
+简答版：
+Spring 声明式事务主要基于 AOP 和 PlatformTransactionManager。方法调用进入代理对象后，在目标方法前开启事务，方法成功后提交，异常时按规则回滚。
 
-## 什么是循环依赖
+展开版：
+@Transactional 被事务拦截器识别后，会根据事务属性获取或创建事务。目标方法正常执行则提交事务；如果抛出符合回滚规则的异常，则回滚事务。底层真正的事务操作由具体 TransactionManager 完成，比如 DataSourceTransactionManager。
 
-两个或多个 Bean 互相依赖：
+常见追问：
+- @Transactional 为什么有时会失效？
+- 默认遇到什么异常回滚？
+- 事务传播行为有哪些？
 
-```text
-A 依赖 B
-B 依赖 A
-```
+### 7. Spring 事务传播行为是什么？
 
-## Spring 解决方式
+简答版：
+传播行为定义一个事务方法调用另一个事务方法时，事务应该如何加入、创建或挂起。
 
-Spring 通过三级缓存解决单例 Bean 的 setter 循环依赖。
+展开版：
+最常见的是 REQUIRED，表示有事务就加入，没有就新建。REQUIRES_NEW 表示无论外层有没有事务，都新建一个事务，并挂起外层事务。NESTED 表示嵌套事务，通常依赖保存点。SUPPORTS、NOT_SUPPORTED、MANDATORY、NEVER 是其他边界行为。
 
-```text
-一级缓存：完整单例对象
-二级缓存：提前暴露的半成品对象
-三级缓存：对象工厂，用于生成提前代理对象
-```
+常见追问：
+- REQUIRED 和 REQUIRES_NEW 有什么区别？
+- NESTED 和 REQUIRES_NEW 有什么区别？
+- 内层事务回滚会不会影响外层事务？
 
-## 解决流程简化版
+### 8. @Transactional 常见失效场景有哪些？
 
-```text
-创建 A
--> A 实例化后提前暴露
--> A 填充属性时需要 B
--> 创建 B
--> B 填充属性时需要 A
--> 从缓存中拿到提前暴露的 A
--> B 创建完成
--> A 继续完成属性填充和初始化
-```
+简答版：
+常见失效包括自调用、方法不是 public、异常被捕获、抛出的异常不符合默认回滚规则、对象没有交给 Spring 管理、数据库引擎不支持事务。
 
-## 不能解决的情况
+展开版：
+Spring 事务基于代理生效，如果同一个类内部方法互相调用，没有经过代理对象，事务增强不会执行。默认只对 RuntimeException 和 Error 回滚，受检异常需要指定 rollbackFor。异常被 catch 后没有继续抛出，事务拦截器也无法感知失败。
 
-- 构造器循环依赖。
-- prototype 作用域循环依赖。
-- 某些复杂代理场景。
+常见追问：
+- 自调用为什么绕过代理？
+- checked exception 默认会回滚吗？
+- private 方法加 @Transactional 有用吗？
 
-## 易错点
+### 9. Spring MVC 请求处理流程是什么？
 
-- 三级缓存不是为了解决所有循环依赖，而是为了解决带 AOP 代理时提前暴露对象的问题。
-- 构造器注入的循环依赖通常无法解决，因为对象还没实例化完成。
+简答版：
+请求先到 DispatcherServlet，再通过 HandlerMapping 找到处理器，通过 HandlerAdapter 调用 Controller，之后完成参数解析、业务调用、返回值处理和视图或响应体写出。
 
----
+展开版：
+DispatcherServlet 是前端控制器，负责统一调度。HandlerMapping 根据 URL 等信息找到目标 Handler；HandlerAdapter 适配并调用它；参数解析器把请求参数转换为方法参数；返回值处理器把返回对象转换为响应，比如通过 HttpMessageConverter 写成 JSON。
 
-# 四、AOP
+常见追问：
+- HandlerMapping 和 HandlerAdapter 分别做什么？
+- @RequestBody 和 @ResponseBody 的底层是什么？
+- 拦截器和过滤器有什么区别？
 
-## AOP 是什么
+### 10. Spring Boot 自动配置原理是什么？
 
-AOP 是面向切面编程，把日志、权限、事务、监控等横切逻辑从业务代码中抽离出来。
+简答版：
+Spring Boot 通过 starter 引入依赖，通过自动配置类和条件装配，在满足条件时自动创建默认 Bean。
 
-## 核心概念
+展开版：
+starter 负责依赖整合，自动配置类负责声明默认配置，条件注解决定配置是否生效，比如类路径下存在某个类、容器中缺少某个 Bean、配置项开启等。这样 Spring Boot 可以在少量配置下完成常见框架整合。
 
-- Join Point：连接点，可以被增强的位置。
-- Pointcut：切点，匹配哪些连接点。
-- Advice：通知，增强逻辑。
-- Aspect：切面，切点 + 通知。
-- Proxy：代理对象。
+常见追问：
+- starter 本身做了什么？
+- @ConditionalOnMissingBean 有什么用？
+- 如何排除某个自动配置？
 
-## 实现方式
+## 五、易错点
 
-### JDK 动态代理
+- IoC 是思想，DI 是实现方式之一。
+- BeanFactory 是基础容器，ApplicationContext 是更完整的上下文。
+- Spring 只能解决部分循环依赖，不能解决所有循环依赖。
+- AOP 基于代理时，自调用会绕过代理。
+- @Transactional 默认只对 RuntimeException 和 Error 回滚。
+- Spring MVC 的核心不是 Controller，而是 DispatcherServlet 统一调度流程。
+- Spring Boot 自动配置不是魔法，本质是条件满足时注册 Bean。
 
-- 基于接口。
-- 代理对象实现同一接口。
+## 六、10 题自测
 
-### CGLIB
-
-- 基于继承生成子类。
-- 不要求目标类实现接口。
-- final 类或 final 方法不能被正常代理。
-
-## 易错点
-
-- Spring AOP 主要基于代理，不是直接修改原方法。
-- 同类内部方法调用可能绕过代理，导致 AOP 或事务不生效。
-
----
-
-# 五、Spring 事务
-
-## 事务核心
-
-Spring 事务本质上是基于 AOP 对方法进行增强，在方法执行前开启事务，正常返回提交事务，抛出异常回滚事务。
-
-## 传播行为
-
-常见重点：
-
-- REQUIRED：默认，有事务就加入，没有就新建。
-- REQUIRES_NEW：新建事务，挂起外层事务。
-- NESTED：嵌套事务，依赖保存点。
-
-## 隔离级别
-
-对应数据库隔离级别：
-
-- READ UNCOMMITTED
-- READ COMMITTED
-- REPEATABLE READ
-- SERIALIZABLE
-
-## 事务失效场景
-
-- 方法不是 public。
-- 同类内部方法调用。
-- 异常被 catch 但没有重新抛出。
-- 默认只回滚 RuntimeException 和 Error。
-- 数据库引擎不支持事务。
-- 没有被 Spring 容器管理。
-
-## 易错点
-
-- `@Transactional` 不是加了就一定生效。
-- 事务是否回滚和异常类型、传播行为、代理调用方式都有关。
-
----
-
-# 六、Spring MVC
-
-## 请求流程
-
-```text
-请求进入 DispatcherServlet
--> HandlerMapping 找到处理器
--> HandlerAdapter 调用 Controller
--> 参数绑定和类型转换
--> 执行业务逻辑
--> 返回 ModelAndView 或 ResponseBody
--> 消息转换/视图解析
--> 返回响应
-```
-
-## 核心组件
-
-- DispatcherServlet：前端控制器，统一入口。
-- HandlerMapping：根据请求找到 Controller。
-- HandlerAdapter：适配并调用 Controller。
-- ViewResolver：解析视图。
-- HttpMessageConverter：处理 JSON 等请求/响应体转换。
-- ExceptionHandler：异常处理。
-
-## 易错点
-
-- `@RequestBody` 依赖消息转换器读取请求体。
-- `@ResponseBody` 表示返回值写入响应体，而不是视图名。
-- Controller 不应该堆太多业务逻辑，复杂逻辑应放到 Service。
-
----
-
-# 七、Spring Boot
-
-## Spring Boot 解决什么问题
-
-Spring Boot 不是替代 Spring，而是简化 Spring 应用开发。
-
-主要能力：
-
-- 自动装配。
-- starter 依赖管理。
-- 内嵌 Web 容器。
-- 外部化配置。
-- 运行监控和健康检查。
-
-## 自动装配
-
-核心思想：
-
-```text
-根据 classpath 中的依赖
-结合条件注解
-自动创建默认 Bean
-```
-
-关键点：
-
-- `@SpringBootApplication`
-- `@EnableAutoConfiguration`
-- 条件注解：`@ConditionalOnClass`、`@ConditionalOnMissingBean` 等。
-- 自动配置类。
-
-## 启动流程简化版
-
-```text
-创建 SpringApplication
--> 准备环境
--> 创建 ApplicationContext
--> 加载 BeanDefinition
--> 执行自动装配
--> 刷新容器
--> 启动内嵌服务器
--> 执行 Runner
-```
-
-## 易错点
-
-- 自动装配不是无脑创建 Bean，而是由条件注解决定是否生效。
-- starter 本身通常主要负责依赖聚合，真正配置逻辑在 auto-configuration 中。
-
----
-
-# 面试问答附录
-
-## Q1：Spring IOC 是什么？
-
-标准回答：
-
-> IOC 是控制反转，意思是对象的创建和依赖管理不再由业务代码自己控制，而是交给 Spring 容器。业务对象只需要声明依赖，容器负责创建 Bean、注入依赖、管理生命周期。这样可以降低耦合，也方便做 AOP、事务、测试替换等能力。
-
-## Q2：Bean 生命周期是什么？
-
-标准回答：
-
-> Spring 会先解析 BeanDefinition，然后实例化 Bean，进行属性填充，执行 Aware 回调，经过 BeanPostProcessor 前置处理，执行初始化方法，再经过 BeanPostProcessor 后置处理，之后 Bean 就可以使用。容器关闭时会执行销毁回调。
-
-## Q3：Spring 如何解决循环依赖？
-
-标准回答：
-
-> Spring 主要通过三级缓存解决单例 Bean 的 setter 循环依赖。一级缓存保存完整 Bean，二级缓存保存提前暴露的半成品 Bean，三级缓存保存 ObjectFactory，用于必要时生成提前代理对象。这样 A 创建过程中需要 B，B 又需要 A 时，可以从缓存中拿到提前暴露的 A。
-
-## Q4：AOP 是什么？Spring AOP 怎么实现？
-
-标准回答：
-
-> AOP 是面向切面编程，用来把日志、事务、权限等横切逻辑从业务代码中抽离出来。Spring AOP 主要基于代理实现，如果目标对象实现接口，通常可以使用 JDK 动态代理；如果没有接口，可以使用 CGLIB 生成子类代理。
-
-## Q5：Spring 事务为什么会失效？
-
-标准回答：
-
-> Spring 事务基于 AOP 代理实现，所以常见失效原因包括同类内部方法调用绕过代理、方法不是 public、异常被 catch 后没有抛出、默认不回滚检查异常、对象没有交给 Spring 管理、数据库本身不支持事务等。
-
-## Q6：Spring MVC 请求流程是什么？
-
-标准回答：
-
-> 请求先进入 DispatcherServlet，然后 HandlerMapping 找到对应 Controller，HandlerAdapter 负责调用方法，过程中完成参数绑定和类型转换。Controller 执行业务逻辑后返回结果，如果是 JSON 响应，会通过 HttpMessageConverter 写入响应体；如果是页面，则通过 ViewResolver 解析视图。
-
-## Q7：Spring Boot 自动装配是什么？
-
-标准回答：
-
-> Spring Boot 自动装配是根据当前项目 classpath 中的依赖、配置文件和条件注解，自动创建合适的 Bean。它通过自动配置类和 `@Conditional` 系列注解实现，只有满足条件时配置才会生效。starter 负责聚合依赖，auto-configuration 负责真正的自动配置逻辑。
+1. IoC 和 DI 分别是什么？
+2. BeanFactory 和 ApplicationContext 有什么区别？
+3. Bean 生命周期完整流程是什么？
+4. Spring 如何解决 setter 循环依赖？
+5. 为什么构造器循环依赖解决不了？
+6. JDK 动态代理和 CGLIB 有什么区别？
+7. Spring 事务为什么依赖 AOP？
+8. @Transactional 有哪些失效场景？
+9. Spring MVC 请求处理流程是什么？
+10. Spring Boot 自动配置的核心机制是什么？
 

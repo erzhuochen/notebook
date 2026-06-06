@@ -1,740 +1,287 @@
-# 7. Java 并发复习提纲与面试问答
+# 7、Java 并发复习提纲与面试问答
 
-使用方式：
+## 一、知识树
 
-- 先看“体系复习提纲”，建立并发主线。
-- 再按“面试问答练习”自己写回答。
-- 回答区先留空，写完后让我检查。
+### 1. 线程基础
 
----
+- 线程创建方式
+- Java 线程状态
+- start 和 run
+- sleep、wait、join、yield
+- interrupt 中断机制
 
-# 一、体系复习提纲
+### 2. JMM 与 volatile
 
-## 1. 学习目标
+- 原子性、可见性、有序性
+- happens-before
+- volatile 的作用和局限
+- 双重检查锁为什么需要 volatile
 
-能围绕“多线程共享数据如何保证正确性和性能”讲清 JMM、volatile、synchronized、CAS、AQS、线程池、ThreadLocal、并发容器和异步编排。
+### 3. synchronized 与锁
 
-## 2. 核心主线
+- synchronized 锁对象
+- monitorenter、monitorexit
+- 可重入性
+- 锁升级
+- synchronized 和 ReentrantLock
 
-```text
-多线程共享数据
--> 出现原子性、可见性、有序性问题
--> JMM 定义内存可见性规则
--> volatile / synchronized / Lock 解决不同问题
--> CAS 和 AQS 支撑 JUC
--> 线程池管理线程资源
--> ThreadLocal 管理线程隔离变量
--> 并发容器解决集合线程安全问题
--> CompletableFuture 支持异步任务编排
-```
+### 4. CAS 与原子类
 
-## 3. 必会知识点
+- CAS 三个操作数
+- ABA 问题
+- AtomicInteger
+- LongAdder
 
-### 线程基础
+### 5. ThreadLocal
 
-- 线程是 CPU 调度的基本单位。
-- Java 线程常见状态：NEW、RUNNABLE、BLOCKED、WAITING、TIMED_WAITING、TERMINATED。
-- start 会创建新线程，run 只是普通方法调用。
+- ThreadLocalMap
+- 弱引用 key
+- 内存泄漏
+- remove
 
-### JMM
+### 6. 线程池
 
-- JMM 解决多线程下共享变量的原子性、可见性、有序性问题。
-- happens-before 用于判断一个操作的结果是否对另一个操作可见。
+- 七大核心参数
+- 任务执行流程
+- 拒绝策略
+- 阻塞队列
+- execute 和 submit
+- shutdown 和 shutdownNow
 
-### volatile
+### 7. AQS 与 JUC
 
-- 保证可见性。
-- 禁止指令重排序。
-- 不保证复合操作的原子性。
+- AQS state 和 CLH 队列
+- ReentrantLock
+- CountDownLatch
+- Semaphore
+- CyclicBarrier
+- BlockingQueue
 
-### synchronized
+### 8. 并发容器与异步编程
 
-- 锁的是对象。
-- 保证原子性、可见性、有序性。
-- 支持可重入。
-- 底层和对象头、Monitor 有关。
+- ConcurrentHashMap
+- CopyOnWriteArrayList
+- BlockingQueue
+- Future
+- CompletableFuture
 
-### CAS
+## 二、高频面试题
 
-- 比较并交换。
-- 是原子类和很多无锁结构的基础。
-- 问题：ABA、自旋开销、只能保证单变量原子性。
+### 1. Java 线程有哪些状态？
 
-### AQS
+简答版：
+Java 线程有 NEW、RUNNABLE、BLOCKED、WAITING、TIMED_WAITING、TERMINATED 六种状态。
 
-- 核心是 state 状态和 FIFO 等待队列。
-- ReentrantLock、Semaphore、CountDownLatch 等都和 AQS 有关。
+展开版：
+NEW 表示线程对象创建但还没 start；RUNNABLE 表示可运行，包含操作系统层面的就绪和运行；BLOCKED 表示等待 synchronized 锁；WAITING 表示无限期等待，比如 wait、join、park；TIMED_WAITING 表示限时等待，比如 sleep、wait(time)、join(time)；TERMINATED 表示线程执行结束。
 
-### 线程池
-
-- 复用线程、控制并发、统一管理任务。
-- 七大参数必须熟悉。
-- 执行流程：核心线程、阻塞队列、非核心线程、拒绝策略。
-
-### ThreadLocal
-
-- 每个线程保存自己的变量副本。
-- 常用于用户上下文、链路追踪、事务上下文等。
-- 线程池场景必须 remove。
-
-## 4. 易错点
-
-- volatile 不能保证 i++ 原子性。
-- synchronized 锁的是对象，不是代码。
-- ThreadLocal 不是解决共享变量竞争，而是避免共享。
-- 线程池参数不是越大越好。
-- CompletableFuture 默认线程池使用不当可能影响公共线程池。
-
----
-
-# 二、面试问答练习
-
-## A. 线程基础
-
-### Q1：进程和线程有什么区别？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 为什么线程切换比进程切换轻？
-- Java 线程和操作系统线程是什么关系？
-
-### Q2：并发和并行有什么区别？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 单核 CPU 能不能并发？
-- 多核 CPU 如何实现并行？
-
-### Q3：Java 线程有哪些状态？
-
-我的回答：
-
-> 
-
-可能追问：
-
+常见追问：
 - BLOCKED 和 WAITING 有什么区别？
-- sleep、wait、join 分别会进入什么状态？
-
-### Q4：start 和 run 有什么区别？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 直接调用 run 会创建新线程吗？
-- 一个线程能 start 两次吗？
-
-### Q5：sleep、wait、join、yield 有什么区别？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- wait 为什么必须在 synchronized 中使用？
 - sleep 会释放锁吗？
+- wait 为什么必须在 synchronized 中调用？
 
-### Q6：notify 和 notifyAll 有什么区别？
+### 2. start 和 run 有什么区别？
 
-我的回答：
+简答版：
+start 会启动新线程，由新线程执行 run；run 只是普通方法调用，不会创建新线程。
 
-> 
+展开版：
+调用 start 后，线程进入 RUNNABLE 状态，等待 JVM 和操作系统调度。run 方法只是线程要执行的任务体，如果直接调用 run，它会在当前线程中同步执行。
 
-可能追问：
+常见追问：
+- 一个线程可以 start 两次吗？
+- 为什么 start 后不是立刻运行？
+- 线程执行完还能重新 start 吗？
 
-- 为什么很多场景推荐 notifyAll？
-- 虚假唤醒是什么？
+### 3. sleep、wait、join、yield 有什么区别？
 
-### Q7：如何优雅停止一个线程？
+简答版：
+sleep 让当前线程限时等待但不释放锁；wait 释放对象锁并等待通知；join 等待另一个线程结束；yield 只是提示调度器让出 CPU。
 
-我的回答：
+展开版：
+sleep 是 Thread 的静态方法；wait 是 Object 的方法，必须持有对象 monitor 才能调用；join 底层也是等待目标线程执行结束；yield 不保证一定生效，也不会释放锁。
 
-> 
+常见追问：
+- wait 和 notify 为什么属于 Object？
+- wait 被唤醒后能立刻执行吗？
+- 为什么 wait 通常要写在 while 中？
 
-可能追问：
+### 4. JMM 主要解决什么问题？
 
-- interrupt 是强制停止线程吗？
-- 为什么不推荐 stop？
+简答版：
+JMM 定义了多线程环境下共享变量的读写规则，主要解决原子性、可见性和有序性问题。
 
-## B. JMM 与 volatile
+展开版：
+由于 CPU 缓存、编译器优化、指令重排序的存在，一个线程修改共享变量后，其他线程不一定马上可见；程序执行顺序也可能和源码顺序不同。JMM 通过 volatile、synchronized、final、happens-before 等规则约束这些行为。
 
-### Q8：什么是 JMM？它解决什么问题？
+常见追问：
+- 工作内存和主内存是什么关系？
+- happens-before 是什么？
+- synchronized 如何保证可见性？
 
-我的回答：
+### 5. volatile 有什么作用？
 
-> 
+简答版：
+volatile 保证可见性，禁止特定指令重排序，但不保证复合操作的原子性。
 
-可能追问：
+展开版：
+写 volatile 变量后，会把修改刷新到主内存；读 volatile 变量时，会读取最新值。volatile 还会插入内存屏障，常用于状态标记和双重检查锁。但 i++ 包含读、改、写三步，volatile 不能保证这三步整体不被打断。
 
-- 主内存和工作内存怎么理解？
-- JMM 和 JVM 内存结构是一回事吗？
+常见追问：
+- volatile 为什么不能保证 i++ 原子性？
+- volatile 和 synchronized 有什么区别？
+- 双重检查锁为什么要用 volatile？
 
-### Q9：原子性、可见性、有序性分别是什么？
+### 6. synchronized 锁的是什么？
 
-我的回答：
+简答版：
+普通同步方法锁当前对象 this；静态同步方法锁当前类的 Class 对象；同步代码块锁括号里指定的对象。
 
-> 
+展开版：
+synchronized 的本质是进入和退出对象关联的 monitor。进入同步块时尝试获取 monitor，退出时释放 monitor。JVM 通过 monitorenter 和 monitorexit 指令实现同步代码块，通过方法访问标志实现同步方法。
 
-可能追问：
+常见追问：
+- synchronized 为什么是可重入的？
+- 两个普通同步方法之间会互斥吗？
+- synchronized 和 ReentrantLock 有什么区别？
 
-- 哪些关键字或工具能分别解决这些问题？
-- i++ 缺少哪种保证？
+### 7. synchronized 锁升级过程是什么？
 
-### Q10：volatile 有什么作用？
+简答版：
+JDK 8 中通常是无锁、偏向锁、轻量级锁、重量级锁；随着竞争加剧逐步升级。
 
-我的回答：
+展开版：
+无竞争时，偏向锁偏向第一个获取锁的线程；轻微竞争时，线程通过 CAS 和自旋竞争轻量级锁；竞争激烈或自旋不划算时，锁膨胀为重量级锁，阻塞和唤醒由 ObjectMonitor 参与，成本更高。
 
-> 
+常见追问：
+- 偏向锁适合什么场景？
+- 轻量级锁为什么要自旋？
+- 重量级锁为什么成本高？
 
-可能追问：
+### 8. CAS 是什么？有什么问题？
 
-- volatile 如何保证可见性？
-- volatile 如何禁止指令重排序？
+简答版：
+CAS 是比较并交换，包含内存值 V、预期值 A、新值 B。只有 V 等于 A 时才更新为 B。问题包括 ABA、自旋开销大、只能直接保证单变量更新。
 
-### Q11：volatile 为什么不能保证 i++ 原子性？
+展开版：
+CAS 是乐观锁思想，失败后通常重试。它依赖 CPU 原子指令保证比较和更新不可分割。高竞争下大量线程反复 CAS 会消耗 CPU。ABA 问题可以用版本号解决，比如 AtomicStampedReference。
 
-我的回答：
-
-> 
-
-可能追问：
-
-- i++ 大致分成哪些步骤？
-- AtomicInteger 为什么可以？
-
-### Q12：happens-before 是什么？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 常见 happens-before 规则有哪些？
-- synchronized 和 volatile 分别对应哪些规则？
-
-### Q13：双重检查锁单例为什么要加 volatile？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- new 对象可能发生什么指令重排序？
-- 不加 volatile 可能出现什么问题？
-
-## C. synchronized
-
-### Q14：synchronized 可以用在哪里？分别锁的是什么？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 普通方法和静态方法锁对象有什么不同？
-- 两个对象调用同一个 synchronized 普通方法会互斥吗？
-
-### Q15：synchronized 如何保证原子性、可见性、有序性？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- monitorenter 和 monitorexit 有什么作用？
-- 退出同步块时会发生什么？
-
-### Q16：synchronized 为什么是可重入的？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 可重入解决什么问题？
-- ReentrantLock 是否可重入？
-
-### Q17：synchronized 锁升级过程是什么？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 偏向锁、轻量级锁、重量级锁分别适合什么场景？
-- 锁升级能不能降级？
-
-### Q18：synchronized 和 ReentrantLock 有什么区别？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 公平锁、可中断锁、条件队列分别是什么？
-- 为什么 ReentrantLock 需要手动释放？
-
-## D. CAS 与原子类
-
-### Q19：CAS 是什么？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- CAS 包含哪三个操作数？
+常见追问：
 - CAS 为什么能保证原子性？
+- ABA 在什么场景会出问题？
+- AtomicInteger 底层是什么？
 
-### Q20：CAS 有哪些缺点？
+### 9. ThreadLocal 为什么可能内存泄漏？
 
-我的回答：
+简答版：
+ThreadLocalMap 的 key 是 ThreadLocal 的弱引用，value 是强引用。如果 key 被回收但 value 没清理，在线程长期存活时 value 可能一直留在 ThreadLocalMap 中。
 
-> 
+展开版：
+线程池中的线程会复用并长期存活。如果使用 ThreadLocal 后不 remove，ThreadLocalMap 中的脏 Entry 可能无法及时清理，导致 value 持续占用内存，也可能造成数据串用。因此用完后建议在 finally 中调用 remove。
 
-可能追问：
-
-- ABA 问题是什么？
-- 自旋开销在什么场景下明显？
-
-### Q21：AtomicInteger 底层原理是什么？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- getAndIncrement 大致怎么实现？
-- Unsafe 类有什么作用？
-
-### Q22：LongAdder 为什么在高并发下可能比 AtomicLong 快？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 分段思想是什么？
-- LongAdder 适合所有场景吗？
-
-## E. AQS 与锁工具
-
-### Q23：AQS 是什么？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- state 表示什么？
-- FIFO 队列解决什么问题？
-
-### Q24：ReentrantLock 的加锁过程和 AQS 有什么关系？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 获取锁失败的线程去哪里？
-- LockSupport 在里面起什么作用？
-
-### Q25：公平锁和非公平锁有什么区别？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 非公平锁为什么吞吐量可能更高？
-- ReentrantLock 默认公平吗？
-
-### Q26：CountDownLatch、CyclicBarrier、Semaphore 分别适合什么场景？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- CountDownLatch 能不能复用？
-- Semaphore 如何控制并发数？
-
-### Q27：LockSupport 的 park/unpark 有什么作用？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 它和 wait/notify 有什么区别？
-- unpark 能不能先于 park 调用？
-
-## F. 线程池
-
-### Q28：为什么要使用线程池？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 线程池解决了线程创建的哪些问题？
-- 线程池如何控制系统资源？
-
-### Q29：线程池七大核心参数是什么？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- workQueue 有哪些常见类型？
-- threadFactory 有什么用？
-
-### Q30：线程池提交任务后的执行流程是什么？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 为什么先放队列再创建非核心线程？
-- 队列满了会怎样？
-
-### Q31：线程池有哪些拒绝策略？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- AbortPolicy 和 CallerRunsPolicy 有什么区别？
-- 业务中如何自定义拒绝策略？
-
-### Q32：为什么不推荐 Executors 创建线程池？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- FixedThreadPool 有什么风险？
-- CachedThreadPool 有什么风险？
-
-### Q33：线程池参数应该如何设置？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- CPU 密集型和 IO 密集型怎么区分？
-- 参数设置后如何通过监控调优？
-
-### Q34：execute 和 submit 有什么区别？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- submit 任务异常会怎么表现？
-- Future 的 get 有什么风险？
-
-### Q35：线程池如何优雅关闭？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- shutdown 和 shutdownNow 有什么区别？
-- 如何等待存量任务执行完成？
-
-### Q36：线程池中的任务抛异常会发生什么？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- execute 和 submit 异常处理有什么不同？
-- 如何统一记录线程池异常？
-
-## G. ThreadLocal
-
-### Q37：ThreadLocal 是什么？适合什么场景？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- ThreadLocal 是解决线程安全问题的吗？
-- 用户上下文为什么适合 ThreadLocal？
-
-### Q38：ThreadLocal 底层结构是什么？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- ThreadLocalMap 存在哪里？
-- key 和 value 分别是什么？
-
-### Q39：ThreadLocal 为什么可能导致内存泄漏？
-
-我的回答：
-
-> 
-
-可能追问：
-
+常见追问：
 - key 为什么设计成弱引用？
-- 线程池场景下为什么更危险？
+- ThreadLocalMap 存在什么对象里？
+- InheritableThreadLocal 是什么？
 
-### Q40：使用 ThreadLocal 后为什么建议 remove？
+### 10. 线程池七大核心参数是什么？
 
-我的回答：
+简答版：
+corePoolSize、maximumPoolSize、keepAliveTime、unit、workQueue、threadFactory、handler。
 
-> 
+展开版：
+corePoolSize 是核心线程数；maximumPoolSize 是最大线程数；keepAliveTime 和 unit 控制非核心线程空闲存活时间；workQueue 存放等待执行的任务；threadFactory 创建线程；handler 是任务无法接收时的拒绝策略。
 
-可能追问：
+常见追问：
+- 线程池任务提交后的执行流程是什么？
+- 为什么不推荐 Executors？
+- 核心线程数怎么设置？
 
-- 不 remove 可能导致脏数据吗？
-- 在 Web 请求中应该在哪里清理？
+### 11. 线程池任务执行流程是什么？
 
-## H. 并发容器
+简答版：
+先创建核心线程；核心线程满了放入队列；队列满了创建非核心线程；线程数达到最大后执行拒绝策略。
 
-### Q41：HashMap 为什么线程不安全？
+展开版：
+ThreadPoolExecutor 收到任务后，如果工作线程数小于 corePoolSize，直接创建核心线程执行；否则尝试放入阻塞队列；如果队列满且线程数小于 maximumPoolSize，就创建非核心线程；如果仍无法处理，就触发拒绝策略。
 
-我的回答：
+常见追问：
+- 为什么是先入队再创建非核心线程？
+- 不同阻塞队列会如何影响线程池？
+- execute 和 submit 有什么区别？
 
-> 
+### 12. AQS 是什么？
 
-可能追问：
+简答版：
+AQS 是 JUC 中构建锁和同步器的基础框架，核心是 state 状态变量和等待队列。
 
-- JDK 1.7 扩容为什么可能成环？
-- JDK 1.8 还有哪些并发问题？
+展开版：
+AQS 用一个 volatile int state 表示同步状态，用 CAS 修改 state。获取失败的线程会进入 CLH 等待队列，并通过 LockSupport park 阻塞。ReentrantLock、Semaphore、CountDownLatch 等都基于 AQS 实现。
 
-### Q42：ConcurrentHashMap 如何保证线程安全？
+常见追问：
+- ReentrantLock 如何基于 AQS 加锁？
+- 公平锁和非公平锁有什么区别？
+- LockSupport 的 park/unpark 有什么特点？
 
-我的回答：
+### 13. ConcurrentHashMap 如何保证线程安全？
 
-> 
+简答版：
+JDK 1.8 中 ConcurrentHashMap 主要通过 CAS + synchronized 保证线程安全，读操作大多无锁，写操作只锁桶头节点。
 
-可能追问：
+展开版：
+初始化和扩容中大量使用 CAS。put 时，如果桶为空，通过 CAS 放入；如果桶不为空，对桶头节点加 synchronized 锁，保证该桶内修改安全。相比 Hashtable 锁整张表，ConcurrentHashMap 锁粒度更小，并发性能更好。
 
-- JDK 1.7 和 JDK 1.8 实现有什么区别？
-- 为什么不锁整张表？
+常见追问：
+- JDK 1.7 和 JDK 1.8 的 ConcurrentHashMap 有什么区别？
+- size 为什么难统计？
+- HashMap 为什么线程不安全？
 
-### Q43：CopyOnWriteArrayList 的原理和适用场景是什么？
+### 14. CompletableFuture 解决了什么问题？
 
-我的回答：
+简答版：
+CompletableFuture 解决了 Future 难以编排、难以组合、异常处理不方便的问题。
 
-> 
+展开版：
+Future 只能阻塞 get 获取结果，多个异步任务之间的串行、并行、聚合、异常恢复都不方便。CompletableFuture 提供 thenApply、thenCompose、thenCombine、allOf、exceptionally 等方法，可以更灵活地组织异步任务。
 
-可能追问：
+常见追问：
+- thenApply 和 thenCompose 有什么区别？
+- allOf 如何汇总多个结果？
+- CompletableFuture 默认使用什么线程池？
 
-- 为什么适合读多写少？
-- 写多场景有什么问题？
+### 15. 如何优雅停止线程？
 
-### Q44：BlockingQueue 在线程池中扮演什么角色？
+简答版：
+推荐使用中断标记或自定义停止标记，让线程在合适的位置主动退出，不推荐使用 stop。
 
-我的回答：
+展开版：
+interrupt 不会强制杀死线程，它只是设置中断标记。线程需要在循环中检查 isInterrupted，或者在阻塞方法抛出 InterruptedException 后正确处理。stop 会强制释放锁，可能破坏对象状态一致性，所以不推荐。
 
-> 
+常见追问：
+- interrupted 和 isInterrupted 有什么区别？
+- 阻塞状态下收到中断会发生什么？
+- 线程池如何优雅关闭？
 
-可能追问：
+## 三、易错点
 
-- ArrayBlockingQueue 和 LinkedBlockingQueue 有什么区别？
-- SynchronousQueue 有什么特点？
+- volatile 不保证 i++ 原子性。
+- sleep 不释放锁，wait 会释放锁。
+- notify 唤醒后线程还要重新竞争锁。
+- ThreadLocal 不是用来解决共享变量同步问题，而是给每个线程一份独立副本。
+- 线程池不是线程越多越好，CPU 密集型和 I/O 密集型设置思路不同。
+- AQS 不是某一把锁，而是一套构建同步器的框架。
+- ConcurrentHashMap 的读操作通常不加锁，但不代表所有操作都完全无锁。
 
-## I. Future 与 CompletableFuture
+## 四、10 题自测
 
-### Q45：Future 有什么作用？有什么缺点？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- get 为什么可能导致阻塞？
-- Future 如何取消任务？
-
-### Q46：CompletableFuture 解决了什么问题？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 它如何支持任务编排？
-- 默认线程池使用时有什么风险？
-
-### Q47：thenApply、thenAccept、thenCompose、thenCombine 有什么区别？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 串行依赖和并行合并分别用哪个？
-- thenCompose 和 thenApply 返回 CompletableFuture 时有什么区别？
-
-### Q48：CompletableFuture 如何处理异常？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- exceptionally、handle、whenComplete 有什么区别？
-- 多个异步任务中一个失败怎么办？
-
-## J. 死锁与安全发布
-
-### Q49：什么是死锁？产生死锁的四个必要条件是什么？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 如何避免死锁？
-- 线上死锁如何排查？
-
-### Q50：如何定位 Java 程序中的死锁？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- jstack 能看到什么？
-- 线程 dump 中应该关注哪些状态？
-
-### Q51：什么是对象逃逸？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 构造方法中启动线程为什么危险？
-- this 逃逸是什么？
-
-### Q52：什么是安全发布？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- final、volatile、synchronized 如何帮助安全发布？
-- 单例对象如何安全发布？
-
-## K. 项目场景题
-
-### Q53：项目里如何使用线程池？参数怎么设计？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 业务峰值如何估算？
-- 如何监控线程池运行状态？
-
-### Q54：如何防止用户重复提交？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 前端防重、后端幂等、数据库唯一约束分别有什么作用？
-- Redis 锁适合这个场景吗？
-
-### Q55：多个请求同时修改同一条数据，如何保证正确性？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 乐观锁和悲观锁怎么选？
-- 数据库锁和 Redis 分布式锁有什么区别？
-
-### Q56：线程池打满了怎么排查？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 是任务太多、任务太慢，还是线程数太少？
-- 如何做降级或限流？
-
-### Q57：ThreadLocal 在项目中可以怎么用？怎么避免问题？
-
-我的回答：
-
-> 
-
-可能追问：
-
-- 用户信息上下文如何传递？
-- 异步线程中 ThreadLocal 会不会自动传递？
+1. Java 线程六种状态分别是什么？
+2. wait 和 sleep 的区别是什么？
+3. JMM 解决了什么问题？
+4. volatile 的作用和局限是什么？
+5. synchronized 锁的对象分别是什么？
+6. synchronized 锁升级过程是什么？
+7. CAS 的 ABA 问题如何解决？
+8. ThreadLocal 为什么要 remove？
+9. 线程池任务提交后的完整流程是什么？
+10. AQS 的核心结构是什么？
 
