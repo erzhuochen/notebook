@@ -27,7 +27,7 @@ JDK：JRE+开发人员用的功能
 
 ### JVM的整体结构
 简略版
-![](JVM.assets/file-20260127103554519.jpg)
+![915](JVM.assets/file-20260127103554519.jpg)
 详细版
 ![](JVM.assets/file-20260127103626239.jpg)
 中文版
