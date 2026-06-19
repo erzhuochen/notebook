@@ -299,8 +299,6 @@ public class Test {
 
 ## IoC 基于注解的执行原理
 
-![image-20210203215149305](C:\Users\ningn\AppData\Roaming\Typora\typora-user-images\image-20210203215149305.png)
-
 手写代码的思路：
 
 1、自定义一个 MyAnnotationConfigApplicationContext，构造器中传入要扫描的包。
