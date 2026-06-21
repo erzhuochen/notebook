@@ -168,7 +168,7 @@
 | 11 | 设计模式 / 常见错误 | 用于面试追问和排错 |
 | 12 | MyBatis 扩展 | 后续需要时再补充 |
 
-## 五、Bean 源码学习总结 **【重点】**
+## 四、Bean 源码学习总结 **【重点】**
 
 > 这一部分是 Bean 第一阶段源码学习总结。重点不是背源码每一行，而是能把 **BeanDefinition -> 注册 -> getBean -> 创建 Bean -> 生命周期 -> 循环依赖 -> 扩展点** 这条线讲清楚。
 
@@ -723,57 +723,132 @@ Bean 这一阶段需要能说清楚：
 12. @Autowired 本质是在依赖注入阶段查找 Bean 并注入。
 ```
 
-## 六、MyBatis 扩展题
+## 五、面试题
 
-> 这部分来自截图末尾，但不属于当前 Spring 主线。可以等 Spring 主体复习完之后再学。
+#### Bean的生命周期？
+1. **实例化 Bean**
+2. **属性注入 / 依赖注入**
+3. Aware 回调
+   - BeanNameAware
+   - BeanFactoryAware
+   - ApplicationContextAware
+4. BeanPostProcessor#postProcessBeforeInitialization
+5. 初始化方法
+   - @PostConstruct
+   - InitializingBean#afterPropertiesSet()
+   - **init-method**
+6. BeanPostProcessor#postProcessAfterInitialization
+7. Bean 可以被**使用**
+8. 容器关闭时**销毁 Bean**
+   - @PreDestroy
+   - DisposableBean#destroy()
+   - destroy-method
 
-### 46. MyBatis 执行流程是什么？
+#### Spring框架中的事务管理
+Spring 事务主要通过**声明式事务管理**实现，底层依赖 AOP 动态代理、TransactionInterceptor 和 PlatformTransactionManager。
+
+常见传播行为：
+
+1. **REQUIRED**
+   默认传播行为。
+   当前有事务就加入当前事务，没有事务就新建事务。
+   内外层方法处于同一个事务中，一旦事务最终回滚，所有操作都会回滚。
+
+2. **REQUIRES_NEW**
+   每次都会新建一个事务。
+   如果外层已经有事务，会先挂起外层事务，再开启一个新的内层事务。
+   内层事务和外层事务相互独立，内层提交后，外层回滚不会影响内层。
+   但如果内层异常继续向外抛，外层事务仍然可能因为异常而回滚。
+
+3. **NESTED**
+   当前有事务时，会在当前事务中创建保存点。
+   内层异常时，可以回滚到保存点，只回滚内层操作。
+   如果外层捕获异常，外层事务可以继续提交。
+   但 NESTED 不是独立事务，如果外层最终回滚，内层成功的操作也会一起回滚。
+
+#### Spring MVC流程
+1. 用户发送 HTTP 请求
+        ↓
+2. 请求到达 DispatcherServlet
+        ↓
+3. DispatcherServlet 调用 HandlerMapping
+        ↓
+4. HandlerMapping 找到对应的 Handler，也就是 Controller 方法
+        ↓
+5. DispatcherServlet 调用 HandlerAdapter
+        ↓
+6. HandlerAdapter 执行 Controller 方法
+        ↓
+7. Controller 调用 Service、Mapper 完成业务处理
+        ↓
+8. Controller 返回 ModelAndView 或 JSON 数据
+        ↓
+9. 如果返回页面，交给 ViewResolver 解析视图
+        ↓
+10. 如果返回 JSON，交给 HttpMessageConverter 转换
+        ↓
+11. DispatcherServlet 返回响应给客户端
+![](9、Spring系统学习笔记.assets/file-20260621134855517.png)
+#### Spring Boot与Spring的区别？
 
 回答：
+1. 自动配置：基于条件注解，比如`@ConditionalOnClass`, `@ConditionalOnMissingBean`, `@ConditionalOnProperty`
+2. starter起步依赖
+3. 内嵌Web容器
+4. 约定大于配置
+#### Spring Boot中的自动装配是如何实现的？
+Spring Boot 自动装配的核心是 **@EnableAutoConfiguration**。
 
-#### 追问 1：`SqlSession` 的作用是什么？
+@SpringBootApplication 是一个组合注解，包含：
+1. @SpringBootConfiguration
+2. @EnableAutoConfiguration
+3. @ComponentScan
 
-回答：
+其中 @EnableAutoConfiguration 会开启自动配置机制。
 
-#### 追问 2：Mapper 接口为什么不需要实现类？
+Spring Boot 启动时，会通过 AutoConfigurationImportSelector 加载自动配置类。
+在 Spring Boot 2 中，自动配置类常通过 META-INF/spring.factories 配置；
+在 Spring Boot 3 中，主要通过
+META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports 配置。
 
-回答：
+这些自动配置类本质上也是配置类，里面会通过 @Bean 注册默认组件。
 
-#### 追问 3：MyBatis 如何把查询结果映射成对象？
+但是自动配置类不会无条件生效，而是会配合条件注解判断是否装配，例如：
+1. @ConditionalOnClass：classpath 中存在某个类时生效
+2. @ConditionalOnMissingBean：容器中没有某个 Bean 时生效
+3. @ConditionalOnProperty：配置文件中某个属性满足条件时生效
+4. @ConditionalOnWebApplication：当前是 Web 应用时生效
 
-回答：
+外部配置 application.properties / application.yml 可以修改自动配置的默认属性。
 
-### 47. MyBatis 一级缓存和二级缓存是什么？
+所以 Spring Boot 自动装配的流程是：
+启动类开启自动配置
+→ 加载自动配置类
+→ 条件注解判断是否满足
+→ 读取外部配置
+→ 注册默认 Bean
+→ 如果用户自己定义了 Bean，通常优先使用用户自己的配置。
 
-回答：
+#### Spring Security中的认证和授权机制是如何工作的？（待完善）
+认证解决“你是谁”，授权解决“你能访问什么”。请求进入系统后，会先经过 Spring Security 的过滤器链，认证过滤器会校验用户名密码、Token 等身份信息，认证成功后把用户信息放入 `SecurityContextHolder`；后续授权过滤器再根据当前用户的角色或权限判断是否允许访问目标资源。
 
-#### 追问 1：一级缓存的作用域是什么？
+#### Spring中的事件和事件监听器是如何工作的？
+1. 事件
+2. 事件发布
+3. 事件监听
 
-回答：
+Spring 中的事件和事件监听器是一种基于观察者模式的解耦机制。事件表示系统中发生了某个动作，比如用户注册成功、订单创建成功；监听器负责监听这些事件并执行后续逻辑，比如发送邮件、发优惠券、记录日志。
 
-#### 追问 2：二级缓存的作用域是什么？
+Spring 中可以通过 `ApplicationEventPublisher` 发布事件，通过 `@EventListener` 或实现 `ApplicationListener` 来监听事件。事件发布后，Spring 会通过 `ApplicationEventMulticaster` 找到匹配的监听器并调用对应方法。
 
-回答：
+默认情况下，Spring 事件是同步执行的，也就是说监听器会在 `publishEvent()` 方法中被调用。如果希望异步执行，可以配合 `@EnableAsync` 和 `@Async`。
 
-#### 追问 3：为什么 MyBatis 二级缓存实际项目中要谨慎使用？
+如果事件发布发生在事务中，还要注意事务提交问题。普通 `@EventListener` 可能在事务提交前就执行，如果希望事务提交后再处理事件，可以使用 `@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)`。
 
-回答：
+所以 Spring 事件机制的核心作用是解耦业务逻辑，适合处理一些主流程完成后的扩展动作。
 
-### 48. MyBatis 如何防止 SQL 注入？
+#### Spring MVC和Spring WebFlux的区别
 
-回答：
-
-#### 追问 1：`#{}` 和 `${}` 有什么区别？
-
-回答：
-
-#### 追问 2：哪些场景容易误用 `${}`？
-
-回答：
-
-#### 追问 3：动态 SQL 会不会带来 SQL 注入风险？
-
-回答：
 
 ## 七、待自查易错方向
 
