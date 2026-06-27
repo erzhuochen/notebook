@@ -140,7 +140,7 @@
 《分布式系统原理与范型》定义:
 “分布式系统是若干独立计算机的集合,这些计算机对于用户来说就像单个相关系统”
 
-![图 5-1](10、Spring Cloud.assets/pdf-p05-img01.png)
+![图 5-1](<10、Spring Cloud.assets/pdf-p05-img01.png>)
 
 分布式系统(distributed system)是建立在网络之上的软件系统。
 分布式是指将不同的业务分布在不同的地方。
@@ -161,7 +161,8 @@
 轮询:为第一个请求选择健康池中的第一个后端服务器,然后按顺序往后依次选择,直到最后
 一个,然后循环。
 
-![图 6-1](10、Spring Cloud.assets/pdf-p06-img01.png)
+![图 6-1](<10、Spring Cloud.assets/pdf-p06-img01.png>)
+
 
 最小连接:优先选择连接数最少,也就是压力最小的后端服务器,在会话较长的情况下可以考
 虑采取这种方式。
@@ -173,9 +174,9 @@ A 服务调用 B 服务,A 服务并不知道 B 服务当前在哪几台服务器
 下线。解决这个问题可以引入注册中心;
 如果某些服务下线,我们其他人可以实时的感知到其他服务的状态,从而避免调用不可用的服务
 
-![图 7-1](10、Spring Cloud.assets/pdf-p07-img01.png)
+![图 7-1](<10、Spring Cloud.assets/pdf-p07-img01.png>)
 
-![图 7-2](10、Spring Cloud.assets/pdf-p07-img02.png)
+![图 7-2](<10、Spring Cloud.assets/pdf-p07-img02.png>)
 
 ### 1.6. 配置中心
 每一个服务最终都有大量的配置,并且每个服务都可能部署在多台机器上。我们经常需要变更配
@@ -185,7 +186,7 @@ A 服务调用 B 服务,A 服务并不知道 B 服务当前在哪几台服务器
 在微服务架构中,微服务之间通过网络进行通信,存在相互依赖,当其中一个服务不可用时,有可
 能会造成雪崩效应。要防止这样的情况,必须要有容错机制来保护服务。
 
-![图 8-1](10、Spring Cloud.assets/pdf-p08-img01.png)
+![图 8-1](<10、Spring Cloud.assets/pdf-p08-img01.png>)
 
 1)、服务熔断
 设置服务的超时,当被调用的服务经常失败到达某个阈值,我们可以开启断路保护机制,后来的请
@@ -198,7 +199,7 @@ A 服务调用 B 服务,A 服务并不知道 B 服务当前在哪几台服务器
 能,同时提供了客户端负载均衡,服务自动熔断,灰度发布,统一认证,限流流控,日志统计等丰
 富的功能,帮助我们解决很多 API 管理难题。
 
-![图 9-1](10、Spring Cloud.assets/pdf-p09-img01.png)
+![图 9-1](<10、Spring Cloud.assets/pdf-p09-img01.png>)
 
 ## 2. Spring Cloud
 ### 2.1. 技术配置
@@ -213,12 +214,12 @@ Spring Cloud Alibaba 系列:
 分布式事务:Seata
 ### 2.2. 版本
 
-![图 10-1](10、Spring Cloud.assets/pdf-p10-img01.png)
+![图 10-1](<10、Spring Cloud.assets/pdf-p10-img01.png>)
 
 ### 2.3. 实践
 创建父项目引入公共依赖
 
-![图 11-1](10、Spring Cloud.assets/pdf-p11-img01.png)
+![图 11-1](<10、Spring Cloud.assets/pdf-p11-img01.png>)
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -309,7 +310,7 @@ SpringApplication.run(OrderMainApplication.class, args);
 ##### 3.2.3.1. 查看效果
 访问:http://localhost:8848/nacos 可以看到服务已经注册上来;
 
-![图 14-1](10、Spring Cloud.assets/pdf-p14-img01.png)
+![图 14-1](<10、Spring Cloud.assets/pdf-p14-img01.png>)
 
 ##### 3.2.3.2. 注册更多
 1. 创建 service-product 服务
@@ -325,7 +326,7 @@ a. 注意:每个微服务端口不一样
 #### 3.2.4. 服务发现
 ##### 3.2.4.1. DiscoveryClient
 
-![图 15-1](10、Spring Cloud.assets/pdf-p15-img01.png)
+![图 15-1](<10、Spring Cloud.assets/pdf-p15-img01.png>)
 
 ```java
 @Autowired
@@ -446,9 +447,9 @@ Refused)
 ### 3.3. 配置中心
 主要提示:
 
-![图 20-1](10、Spring Cloud.assets/pdf-p20-img01.png)
+![图 20-1](<10、Spring Cloud.assets/pdf-p20-img01.png>)
 
-![图 20-2](10、Spring Cloud.assets/pdf-p20-img02.png)
+![图 20-2](<10、Spring Cloud.assets/pdf-p20-img02.png>)
 
 #### 3.3.1. 整合配置
 ##### 3.3.1.1. 依赖引入
@@ -470,7 +471,7 @@ spring.config.import=nacos:service-order.properties
 #### 3.3.2. 动态刷新
 ##### 3.3.2.1. @RefreshScope
 
-![图 22-1](10、Spring Cloud.assets/pdf-p22-img01.png)
+![图 22-1](<10、Spring Cloud.assets/pdf-p22-img01.png>)
 
 ```java
 @RefreshScope//自动刷新
@@ -537,7 +538,7 @@ System.out.println("configInfo = " + configInfo);
 分组id:一般可以用微服务的名字作为自己的组。
 ##### 3.3.4.4. 推荐用法
 
-![图 25-1](10、Spring Cloud.assets/pdf-p25-img01.png)
+![图 25-1](<10、Spring Cloud.assets/pdf-p25-img01.png>)
 
 ## 4. OpenFeign - 远程调用
 ### 4.1. 基础入门
@@ -548,7 +549,7 @@ OpenFeign 是一个声明式远程调用客户端;
 #### 4.1.2. 引入依赖
 由于大型项目中,每个项目都可能需要使用远程调用。所以我们可以在父项目中统一引入
 
-![图 26-1](10、Spring Cloud.assets/pdf-p26-img01.png)
+![图 26-1](<10、Spring Cloud.assets/pdf-p26-img01.png>)
 
 ```xml
 <dependency>
@@ -686,9 +687,9 @@ Cloud、Apache Dubbo、gRPC、Quarkus 的整合。您只需要引入相应的依
 接口来快速地定制逻辑。例如定制规则管理、适配动态数据源等。
 ### 5.2. 架构
 
-![图 32-1](10、Spring Cloud.assets/pdf-p32-img01.png)
+![图 32-1](<10、Spring Cloud.assets/pdf-p32-img01.png>)
 
-![图 32-2](10、Spring Cloud.assets/pdf-p32-img02.png)
+![图 32-2](<10、Spring Cloud.assets/pdf-p32-img02.png>)
 
 ### 5.3. 资源&规则
 定义资源:
@@ -713,7 +714,7 @@ Reactor);所有Web接口均为资源
 ```
 #### 5.4.2. 启动控制台
 
-![图 34-1](10、Spring Cloud.assets/pdf-p34-img01.png)
+![图 34-1](<10、Spring Cloud.assets/pdf-p34-img01.png>)
 
 ```bash
 java -jar sentinel.jar
@@ -729,7 +730,7 @@ dashboard: localhost:8080
 ### 5.5. 异常处理
 #### 5.5.1. 自定义 BlockExceptionHandler
 
-![图 35-1](10、Spring Cloud.assets/pdf-p35-img01.png)
+![图 35-1](<10、Spring Cloud.assets/pdf-p35-img01.png>)
 
 ```java
 @Component
@@ -818,26 +819,26 @@ QPS:统计每秒请求数
 并发线程数:统计并发线程数
 #### 5.6.2. 流控模式
 
-![图 39-1](10、Spring Cloud.assets/pdf-p39-img01.png)
+![图 39-1](<10、Spring Cloud.assets/pdf-p39-img01.png>)
 
 #### 5.6.3. 流控效果
 
-![图 40-1](10、Spring Cloud.assets/pdf-p40-img01.png)
+![图 40-1](<10、Spring Cloud.assets/pdf-p40-img01.png>)
 
 ### 5.7. 规则 - 熔断降级
 #### 5.7.1. 断路器
 #### 5.7.2. 工作原理
 
-![图 41-1](10、Spring Cloud.assets/pdf-p41-img01.png)
+![图 41-1](<10、Spring Cloud.assets/pdf-p41-img01.png>)
 
-![图 41-2](10、Spring Cloud.assets/pdf-p41-img02.png)
+![图 41-2](<10、Spring Cloud.assets/pdf-p41-img02.png>)
 
 #### 5.7.3. 熔断与兜底
 ### 5.8. 规则 - 热点参数
 
-![图 42-1](10、Spring Cloud.assets/pdf-p42-img01.png)
+![图 42-1](<10、Spring Cloud.assets/pdf-p42-img01.png>)
 
-![图 42-2](10、Spring Cloud.assets/pdf-p42-img02.png)
+![图 42-2](<10、Spring Cloud.assets/pdf-p42-img02.png>)
 
 #### 5.8.1. 环境搭建
 ```java
@@ -861,7 +862,7 @@ return order;
 ```
 ## 6. Gateway - 网关
 
-![图 43-1](10、Spring Cloud.assets/pdf-p43-img01.png)
+![图 43-1](<10、Spring Cloud.assets/pdf-p43-img01.png>)
 
 官网:https://spring.io/projects/spring-cloud-gateway
 ### 6.1. 基础入门
@@ -872,7 +873,7 @@ return order;
 测试负载均衡
 ##### 6.1.2.1. 创建项目
 
-![图 44-1](10、Spring Cloud.assets/pdf-p44-img01.png)
+![图 44-1](<10、Spring Cloud.assets/pdf-p44-img01.png>)
 
 引入 spring-cloud-starter-gateway 、 spring-cloud-starter-alibaba-nacos-disc
 overy
@@ -922,7 +923,7 @@ After 1/datetime 在指定时间之后
 Before 1/datetime 在指定时间之前
 Between 2/datetime 在指定时间区间内
 
-![图 46-1](10、Spring Cloud.assets/pdf-p46-img01.png)
+![图 46-1](<10、Spring Cloud.assets/pdf-p46-img01.png>)
 
 Cookie 2/string,regexp 包含cookie名且必须匹配指定值
 Header 2/string,regexp 包含请求头且必须匹配指定值
