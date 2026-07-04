@@ -874,6 +874,11 @@ ConfigurationClassParser#parse
       -> 再 processImports 导入最终配置类
 
 
+getImportGroup
+  -> 返回 AutoConfigurationGroup
+      -> process：收集每个自动配置入口
+      -> selectImports：统一去重、排序、返回最终导入类
+
 
 ```java
 public interface DeferredImportSelector extends ImportSelector {  
