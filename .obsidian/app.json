@@ -4,5 +4,6 @@
   "promptDelete": false,
   "attachmentFolderPath": "/",
   "readableLineLength": false,
-  "spellcheck": false
+  "spellcheck": false,
+  "openBehavior": "new"
 }
