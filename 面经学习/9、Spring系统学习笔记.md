@@ -852,8 +852,8 @@ Spring 中可以通过 `ApplicationEventPublisher` 发布事件，通过 `@Event
 
 
 #### `DeferredImportSelector`
-
-两个特点：**延迟**和**排序**
+##### 两个特点
+DeferredImportSelector 两个特点：**延迟**和**排序**
 
 **延迟**：configurationClassParser最后解析
 **排序**：如果定义了一个以上的DeferredImportSelector则使用Order接口来进行排序。这一点也是在 `this.deferredImportSelectorHandler.process();` 中进行了排序调用。
@@ -874,12 +874,18 @@ ConfigurationClassParser#parse
       -> 再 processImports 导入最终配置类
 
 
+##### 为什么需要Group
+Group class 相同的会合并处理，Group class 不同的会分开处理，没有 Group 的默认各自单独处理。
+
 getImportGroup
   -> 返回 AutoConfigurationGroup
       -> process：收集每个自动配置入口
       -> selectImports：统一去重、排序、返回最终导入类
 
 
+
+
+##### 源码
 ```java
 public interface DeferredImportSelector extends ImportSelector {  
     @Nullable  
@@ -934,6 +940,55 @@ public interface DeferredImportSelector extends ImportSelector {
 }
 ```
 
+
+
+#### 自动配置重要语句
+
+```java
+AutoConfigurationEntry autoConfigurationEntry = ((AutoConfigurationImportSelector) deferredImportSelector)  
+       .getAutoConfigurationEntry(annotationMetadata);
+```
+- getAutoConfigurationEntry：获取配置类
+
+
+```java
+protected AutoConfigurationEntry getAutoConfigurationEntry(AnnotationMetadata annotationMetadata) {  
+    if (!isEnabled(annotationMetadata)) {  
+       return EMPTY_ENTRY;  
+    }  
+    // 拿到注解。例如: @SpringBootApplication(exclude = DataSourceAutoConfiguration.class)
+    AnnotationAttributes attributes = getAttributes(annotationMetadata);  
+	// 从"META-INF/spring.factories"读取配置类
+    List<String> configurations = getCandidateConfigurations(annotationMetadata, attributes);  
+    configurations = removeDuplicates(configurations);  
+    Set<String> exclusions = getExclusions(annotationMetadata, attributes);  
+    checkExcludedClasses(configurations, exclusions);  
+    configurations.removeAll(exclusions);  
+    configurations = getConfigurationClassFilter().filter(configurations);  
+    fireAutoConfigurationImportEvents(configurations, exclusions);  
+    return new AutoConfigurationEntry(configurations, exclusions);  
+}
+```
+AutoConfigurationImportSelector#==getCandidateConfigurations==
+    -> SpringFactoriesLoader#loadFactoryNames
+        -> SpringFactoriesLoader#loadSpringFactories
+            -> classLoader.getResources("==META-INF/spring.factories==")
+            -> PropertiesLoaderUtils.loadProperties(...)
+
+
+读取“META-INF/spring.factories”后的处理：
+```
+读取 META-INF/spring.factories
+-> 取出 EnableAutoConfiguration 对应的类名
+-> 去重
+-> 处理 exclude
+-> 条件过滤
+-> 排序
+-> 导入自动配置类
+-> 解析 @Bean
+-> 注册 BeanDefinition
+-> 创建 Bean
+```
 
 ## 七、待自查易错方向
 
