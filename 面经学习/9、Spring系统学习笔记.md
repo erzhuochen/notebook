@@ -789,6 +789,7 @@ Spring 事务主要通过**声明式事务管理**实现，底层依赖 AOP 动�
         ↓
 11. DispatcherServlet 返回响应给客户端
 ![](9、Spring系统学习笔记.assets/file-20260621134855517.png)
+
 #### Spring Boot与Spring的区别？
 
 回答：
