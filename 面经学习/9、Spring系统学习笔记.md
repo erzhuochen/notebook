@@ -852,6 +852,29 @@ Spring 中可以通过 `ApplicationEventPublisher` 发布事件，通过 `@Event
 
 
 #### `DeferredImportSelector`
+
+两个特点：**延迟**和**排序**
+
+**延迟**：configurationClassParser最后解析
+**排序**：如果定义了一个以上的DeferredImportSelector则使用Order接口来进行排序。这一点也是在 `this.deferredImportSelectorHandler.process();` 中进行了排序调用。
+
+
+ConfigurationClassParser#parse
+  -> 逐个 parse 普通配置候选类
+      -> processConfigurationClass
+          -> doProcessConfigurationClass
+              -> processImports
+                  -> ==如果是 DeferredImportSelector，先 handle 暂存==
+                  -> 如果是普通 ImportSelector，立刻 selectImports
+  -> 所有候选配置类这一轮解析完
+  -> ==deferredImportSelectorHandler.process==
+      -> ==sort== 排序
+      -> group 分组
+      -> processGroupImports
+      -> 再 processImports 导入最终配置类
+
+
+
 ```java
 public interface DeferredImportSelector extends ImportSelector {  
     @Nullable  
@@ -906,50 +929,6 @@ public interface DeferredImportSelector extends ImportSelector {
 }
 ```
 
-```java
-	// ConfigurationClassParser.DeferredImportSelectorHandler#handle
-	// deferredImportSelectors  保存待处理的 Selector  
-	private List<DeferredImportSelectorHolder> deferredImportSelectors = new ArrayList<>();
-	// configClass 是持有该@Import 注解的 配置类， importSelector 是引入的 DeferredImportSelector 
-	public void handle(ConfigurationClass configClass, DeferredImportSelector importSelector) {
-			// 将 DeferredImportSelector  和其引入的配置类保存起来。
-			DeferredImportSelectorHolder holder = new DeferredImportSelectorHolder(configClass, importSelector);
-			// 如果deferredImportSelectors 为空，则重新注册
-			if (this.deferredImportSelectors == null) {
-				DeferredImportSelectorGroupingHandler handler = new DeferredImportSelectorGroupingHandler();
-				handler.register(holder);
-				handler.processGroupImports();
-			}
-			else {
-				// 将当前的 config 和 Selector 的持有者保存起来
-				this.deferredImportSelectors.add(holder);
-			}
-		}
-
-// 2.
-	this.deferredImportSelectorHandler.process();
-
-	public void process() {
-		// 获取待处理的 DeferredImportSelectorHolder
-		List<DeferredImportSelectorHolder> deferredImports = this.deferredImportSelectors;
-		this.deferredImportSelectors = null;
-		try {
-			if (deferredImports != null) {
-				DeferredImportSelectorGroupingHandler handler = new DeferredImportSelectorGroupingHandler();
-				// 排序
-				deferredImports.sort(DEFERRED_IMPORT_COMPARATOR);
-				// 1. 根据不同的group 进行分组注册
-				deferredImports.forEach(handler::register);
-				// 2. 按照分组调用
-				handler.processGroupImports();
-			}
-		}
-		finally {
-			this.deferredImportSelectors = new ArrayList<>();
-		}
-	}
-
-```
 
 ## 七、待自查易错方向
 
