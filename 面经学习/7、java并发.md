@@ -31,6 +31,188 @@
 - 保证可见性：线程释放锁前会把修改刷新到主内存，线程获取锁后会读取最新值。
 - 可重入：同一个线程重复获取同一把锁不会死锁，Monitor 会记录重入次数。
 
+#### 线程池的使用
+常用线程池可以按“怎么创建、怎么提交任务、怎么关闭、怎么在项目里用”来理解。
+
+**1. 最基础：创建固定大小线程池**
+
+```java
+ExecutorService executor = Executors.newFixedThreadPool(10);
+
+executor.execute(() -> {
+    System.out.println("处理任务");
+});
+
+executor.shutdown();
+```
+
+`ExecutorService`（执行器服务）是 Java 提供的线程池接口。`execute` 用来提交一个不关心返回值的任务。
+
+但实际项目里不太推荐直接用 `Executors.newFixedThreadPool`，因为它内部队列可能很大，任务堆积时不容易控制风险。
+
+**2. 更推荐：直接用 ThreadPoolExecutor**
+
+```java
+ThreadPoolExecutor executor = new ThreadPoolExecutor(
+        10,
+        20,
+        60,
+        TimeUnit.SECONDS,
+        new LinkedBlockingQueue<>(1000),
+        new ThreadPoolExecutor.CallerRunsPolicy()
+);
+```
+
+`ThreadPoolExecutor`（线程池执行器）是最核心、最常用的线程池类。
+
+几个重要参数：
+
+```
+corePoolSize
+```
+
+核心线程数。平时至少保留多少个线程干活。
+
+```
+maximumPoolSize
+```
+
+最大线程数。任务很多、队列也满了时，最多能扩到多少线程。
+
+```
+keepAliveTime
+```
+
+非核心线程空闲多久后回收。
+
+```
+workQueue
+```
+
+任务队列。线程不够时，任务先排队。
+
+```
+RejectedExecutionHandler
+```
+
+拒绝策略。线程满了、队列也满了时怎么办。
+
+**3. execute 和 submit 的区别**
+
+```
+executor.execute(() -> {
+    System.out.println("无返回值");
+});
+```
+
+`execute`：提交任务，不返回结果。
+
+```
+Future<String> future = executor.submit(() -> {
+    return "执行结果";
+});
+
+String result = future.get();
+```
+
+`submit`：提交任务，会返回 `Future`（异步结果）。可以通过 `future.get()` 拿结果，但 `get()` 会阻塞当前线程。
+
+**4. 常见拒绝策略**
+
+```
+new ThreadPoolExecutor.AbortPolicy()
+```
+
+直接抛异常，默认策略。
+
+```
+new ThreadPoolExecutor.CallerRunsPolicy()
+```
+
+谁提交任务，谁自己执行。Austin 项目里线程池配置用的就是这个思路：任务太多时，让提交任务的线程也参与执行，起到反压作用。
+
+```
+new ThreadPoolExecutor.DiscardPolicy()
+```
+
+直接丢弃新任务，不报错。
+
+```
+new ThreadPoolExecutor.DiscardOldestPolicy()
+```
+
+丢弃队列里最老的任务，再尝试提交新任务。
+
+业务里一般慎用“静默丢弃”，否则消息可能悄悄丢失。
+
+**5. 定时任务线程池**
+
+```
+ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+
+scheduler.scheduleAtFixedRate(() -> {
+    System.out.println("定时执行");
+}, 0, 5, TimeUnit.SECONDS);
+```
+
+`ScheduledExecutorService`（定时调度执行器）适合周期性任务，比如每 5 秒执行一次。
+
+**6. CompletableFuture 异步编排**
+
+```
+CompletableFuture.supplyAsync(() -> {
+    return "查询结果";
+}, executor).thenAccept(result -> {
+    System.out.println(result);
+});
+```
+
+`CompletableFuture`（可组合异步结果）适合多个异步任务串联、并联、组合处理。
+
+例如：
+
+```
+CompletableFuture<String> f1 = CompletableFuture.supplyAsync(() -> "A", executor);
+CompletableFuture<String> f2 = CompletableFuture.supplyAsync(() -> "B", executor);
+
+CompletableFuture.allOf(f1, f2).join();
+```
+
+表示两个任务都执行完再继续。
+
+**7. 项目里的典型用法**
+
+Austin 里不是简单写：
+
+```
+new ThreadPoolExecutor(...)
+```
+
+而是通过 DynamicTp（动态线程池框架）构建：
+
+```
+DtpExecutor executor = HandlerThreadPoolConfig.getExecutor(groupId);
+threadPoolUtils.register(executor);
+taskPendingHolder.put(groupId, executor);
+```
+
+意思是：每个消息类型/渠道都有自己的线程池，比如 `austin.im.notice`。创建后注册到动态线程池框架，后续可以动态调整核心线程数、最大线程数、队列大小等。
+
+**8. 使用线程池的基本原则**
+
+不要一个请求就 `new Thread()`，要复用线程池。
+
+不要无界队列，最好设置队列大小。
+
+不要所有业务共用一个线程池，重要业务最好隔离。
+
+线程池要有清晰命名，方便看日志和排查问题。
+
+应用关闭时要 `shutdown()`，避免任务被粗暴中断。
+
+IO 密集型任务线程数可以大一些，CPU 密集型任务线程数通常接近 CPU 核数。
+
+一句话总结：线程池就是“提前准备一批线程，任务来了就复用它们处理”，核心是控制并发量、控制队列堆积、控制任务满载时的拒绝策略。Austin 这里用线程池，是为了让 MQ 消费到的任务按不同渠道/消息类型隔离处理，避免一种消息把所有处理能力都占满。
 
 
 ## 面试自测问题
