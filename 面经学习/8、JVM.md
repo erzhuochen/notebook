@@ -36,7 +36,7 @@ const、bipush、ldc：常量压入栈
 一个Java对象的内存布局分为三部分：对象头（Header）、实例数据（Instance Data）和对齐填充
 - Mark Word
 - Klass Pointer
-- Array Length
+- Array Length：仅数组对象存在
 
 ##### 一、Mark Word（标记字段）
 
@@ -47,6 +47,16 @@ const、bipush、ldc：常量压入栈
 | **轻量级锁 (Lightweight)** | **指向栈中 Lock Record 的指针 (62位)**   |                    |           |                 |                  | `00`             |
 | **重量级锁 (Heavyweight)** | **指向底层 ObjectMonitor 的指针 (62位)** |                    |           |                 |                  | `10`             |
 | **GC 标记 (Marked)**     | 空 (由 GC 算法接管)                    |                    |           |                 |                  | `11`             |
+
+| 状态                | 64 位 Mark Word 布局（高位 → 低位）                                                    | 锁标志                   |          |       |             |             |      |
+| ----------------- | ----------------------------------------------------------------------------- | --------------------- | -------- | ----- | ----------- | ----------- | ---- |
+| 无锁（Normal）        | `unused:25                                                                    | identity hash code:31 | unused:1 | age:4 | biased:1(0) | lock:2(01)` | `01` |
+| 可偏向/偏向（Biased）    | `JavaThread*:54 \| epoch:2 \| unused:1 \| age:4 \| biased:1(1) \| lock:2(01)` | `01`                  |          |       |             |             |      |
+| 轻量级锁（Lightweight） | `ptr_to_lock_record:62 \| lock:2(00)`                                         | `00`                  |          |       |             |             |      |
+| 重量级锁（Heavyweight） | `ptr_to_ObjectMonitor:62 \| lock:2(10)`                                       | `10`                  |          |       |             |             |      |
+| 特殊标记状态（Marked）    | `collector-dependent:62 \| lock:2(11)`                                        | `11`                  |          |       |             |             |      |
+
+
 **GC年龄为什么默认最大为15**：GC分代年龄为4bit。
 **HashCode在有锁状态时存在哪？**：轻量级锁存在当前线程栈的`Lock Record`中；重量级锁存在`ObjectMonitor`中
 **偏向锁和HashCode**：一旦对象调用了Object.hashCode()（注意，调用重写的hashCode没事），就不能使用偏向锁了。
