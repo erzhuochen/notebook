@@ -113,8 +113,6 @@ public class ObjectHeaderTest {
 
 **典型的输出结果分析（开启指针压缩）：**
 
-Plaintext
-
 ```
 java.lang.Object object internals:
  OFFSET  SIZE   TYPE DESCRIPTION                               VALUE
