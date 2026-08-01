@@ -102,7 +102,7 @@ Http长连接平均耗时2ms，而WebSocket平均耗时20ms
 
 ### 1 BIO
 
-![image-20240212223135963](image/2-即时通讯(IM)系统的实现.assets/image-20240212223135963.png)
+![image-20240212223135963|916](image/2-即时通讯(IM)系统的实现.assets/image-20240212223135963.png)
 
 代码演示：
 
