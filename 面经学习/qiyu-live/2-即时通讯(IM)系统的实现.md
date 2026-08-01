@@ -503,7 +503,7 @@ IM系统全链路：
 
 ### 1 基于Netty搭建IM系统基本骨架和编解码器
 
-**新建qiyu-live-im-interface：**
+**新建qiyu-live-im-interface： **
 
 ```java
 package org.qiyu.live.im.constants;

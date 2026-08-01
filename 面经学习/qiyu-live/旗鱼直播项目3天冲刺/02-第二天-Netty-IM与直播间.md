@@ -96,11 +96,11 @@ sequenceDiagram
 
 ### 登录后的三份状态
 
-| 状态 | 保存位置 | 用途 |
-| --- | --- | --- |
-| `userId -> ChannelHandlerContext` | 当前 IM 实例内存 | 最终向客户端写消息 |
-| `userId/appId/roomId` | Netty Channel Attribute | 心跳、登出和业务包识别当前连接 |
-| `appId + userId -> IM Dubbo IP:port%userId` | Redis，带 TTL | Router 找到正确 IM 实例 |
+| 状态                                          | 保存位置                    | 用途                |
+| ------------------------------------------- | ----------------------- | ----------------- |
+| `userId -> ChannelHandlerContext`           | 当前 IM 实例内存              | 最终向客户端写消息         |
+| `userId/appId/roomId`                       | Netty Channel Attribute | 心跳、登出和业务包识别当前连接   |
+| `appId + userId -> IM Dubbo IP:port%userId` | Redis，带 TTL             | Router 找到正确 IM 实例 |
 
 为什么 Redis 里也要保存绑定？因为 Router 是独立服务，它看不到其他 JVM 的内存 Map；IM 集群扩容后，随机调用某台实例很可能找不到目标 Channel。
 
