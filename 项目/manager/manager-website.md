@@ -362,7 +362,3 @@ Java 会编译报错，**JS 什么都不会发生**——那一列就是空白�
 3. **两个后端仓库不能互抄代码。** manager-shiro 是 Boot 2.7 + `javax.servlet`，manager-data 是 Boot 3.2 + `jakarta.servlet`，复制过去编译不过。
 
 4. **配置全在 Nacos，不在代码里。** 在仓库里搜数据库地址是搜不到的。
-
----
-
-需要的话我可以把这份整理成 Markdown 存到你的笔记目录（比如 `C:\Users\erzhuochen\Desktop\笔记\` 下），或者挑上面任意一站展开细讲——比如把登录那条链路也像 KYC 一样逐站拆一遍。
