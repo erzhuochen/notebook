@@ -39,6 +39,119 @@ MySQL（11 套数据源） + 更下游的微服务（出款、清算、各国 KY
 
 场景：运营在后台打开「KYC 档案」页面，看到一张列表。
 
+### 第 0 站 · 整个前端只有一个宿主页
+
+在进入具体页面之前，先搞清楚「一个页面是怎么被装载出来的」，否则后面每一站都会看不懂。
+
+**完整装载链路：**
+
+```
+浏览器地址栏
+  │
+  ├─ index.html          320B，只有一行 meta refresh 跳转
+  ▼
+  ├─ index.htm           唯一宿主页：loading 动画 + <iframe id="main">
+  │      │
+  │      └─ 判断 tools.auth.read() 有没有 token
+  │             │
+  │             ├─ 无 → iframe 装 views/screen/login.htm（或 login_sso.htm）
+  │             │        登录成功 → 存 token → 重载 index.htm → 再判断一次
+  │             │
+  │             └─ 有 → iframe 装 views/screen/index.htm  ← 主框架（导航+菜单+空内容区）
+  │                          │
+  │                          └─ hash 路由变化 → AJAX 拉取 xxx.htm
+  │                                            → $(".welcome").html(内容)
+  │                                            → 同时自动加载同名 controller/xxx.js
+  ▼
+  所有业务页面共享同一个 DOM、同一份 JS 运行时
+```
+
+#### ① 入口是 `index.html`，不是 `index.htm`
+
+`index.html` 只有 320 字节，全部内容就是一行跳转：
+
+```html
+<meta http-equiv="refresh" content="0; URL=index.htm"/>
+```
+
+#### ② `index.htm` 是"壳"，本身不含任何业务界面
+
+它的 `<body>` 里只有两样东西：
+
+```html
+<div class="loading-background" id="loading"> ... 熊猫 loading 动画 ... </div>
+<iframe id="main" width="100%" height="100%"></iframe>
+```
+
+然后一进来就判断登录态，决定这个 iframe 装什么：
+
+```js
+view.json("shiro://loginState", function () {
+    let main = $("#main");
+    if (tools.auth.read()) {                    // 本地有 token
+        let path = "views/screen/index.htm?r=" + Math.random();
+        main.attr("src", route ? path + '#' + route : path);
+    } else {                                     // 没 token
+        view.json("shiro://judgeIp", function (res) {
+            tools.auth.saveLoginUrl(res);
+            main.attr("src", "views/screen/" + tools.auth.readLoginUrl());
+        });
+    }
+});
+```
+
+**关键：登录页和主框架是同一个 iframe 轮流装的。**
+
+- `shiro://judgeIp` 判断是不是外包客服的 IP，决定用普通登录页还是 SSO 登录页
+- 登录成功发生在 `login.htm` 内部：存好 token 后重新加载 `index.htm`，第二次进来 `tools.auth.read()` 才有值，iframe 才换成主框架
+- 另有一条 SSO 分支：URL 带 `?code=` 参数时走 `shiro://autoLogin`，登录完 `location.replace("index.htm")` 重走一遍判断
+
+#### ③ 主框架 `views/screen/index.htm`：所有页面共用的骨架
+
+```html
+<div id="LAY_app">
+    <div id="nav"></div>                        <!-- 顶部导航 -->
+    <div class="layui-side" id="new_menu">      <!-- 左侧菜单 -->
+        <ul id="LAY-system-side-menu"></ul>
+    </div>
+    <div class="layui-body" id="LAY_app_body">  <!-- 主体部分 -->
+        <div class="layadmin-tabsbody-item layui-show welcome"></div>   <!-- 内容装这里 -->
+    </div>
+</div>
+```
+
+**注意：里面没有第二个 iframe。** 业务页面是被 AJAX 拉成 HTML 字符串后**塞进 `.welcome` 这个 div** 的，三级跳：
+
+```js
+// ① layout.js: render()
+admin.init($(".welcome").empty(), url);          // 先清空，再加载
+
+// ② admin.js:13 init()
+layui.tools.timer.clearAllInterval();            // 清掉上个页面的定时器
+admin.off();                                     // 解绑上个页面的事件
+view(obj).render(url);
+
+// ③ view.js:1353 render()
+url = url + setter.engine;                       // setter.engine = '.htm'
+$.ajax({url: url, dataType: "html", success: function (body) {
+    container.html(body);                        // 把 HTML 字符串直接塞进 div
+}});
+```
+
+因为外层 iframe 的 src 是 `views/screen/index.htm`，相对路径基准就在 `views/screen/`，所以 `admin.init(obj, "customerCenter/kycDossier")` 最终请求的就是 `views/screen/customerCenter/kycDossier.htm`。
+
+**这是个真正的单页应用（SPA），路由靠 URL 的 hash（`#` 后面那段）驱动**，`index.htm` 里注册了 `window.onhashchange`。
+
+#### ④ 由此推出的两个实际影响
+
+**只有一个页面在 DOM 里。**
+`.welcome` 是先 `empty()` 再填新内容，切页面时上一个页面整个被丢掉。这就是为什么 `admin.init` 第一件事是 `clearAllInterval()` 和 `admin.off()`——如果上个页面开了定时器或绑了全局事件不主动清掉，就会泄漏到下个页面，造成"我明明离开这个页面了，它还在发请求"的诡异现象。**自己写定时器时记得走 `layui.tools.timer`，别直接用 `setInterval`。**
+
+**全局状态是共享的。**
+所有页面的 JS 跑在同一个 iframe 的同一个 window 里。两个 controller 如果用了同名全局变量会互相覆盖。这就是每个 controller 都要用 `;layui.define(function(){...})` 包起来的原因——**那个函数壳的作用是造一个私有作用域**，把变量关在里面，相当于 Java 的类作用域。
+
+---
+
 ### 第 1 站 · 页面骨架
 
 `manager-website/html/views/screen/customerCenter/kycDossier.htm`
