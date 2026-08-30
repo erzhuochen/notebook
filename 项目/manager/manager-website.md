@@ -320,6 +320,7 @@ Java 会编译报错，**JS 什么都不会发生**——那一列就是空白�
 
 # 四、建议的阅读顺序
 
+
 ### 第 1 天：先跑起来，别读代码
 
 1. 让 mentor 给你 **QA 环境的后台账号** 和 **Nacos 权限**（没有 Nacos，`manager-data` 和 `manager-shiro` 都起不来）
@@ -334,12 +335,12 @@ Java 会编译报错，**JS 什么都不会发生**——那一列就是空白�
 
 `manager-shiro` 的这 4 个文件，按顺序读：
 
-| 文件                      | 看什么                                                  |
-| ------------------------- | ------------------------------------------------------- |
-| `config/MySessionManager` | **sessionId 来自 `Authorization` 请求头，不是 Cookie**  |
-| `config/MyShiroRealm`     | 登录不用密码，用 **TOTP 动态码**，另外还有一条 SSO 分支 |
+| 文件                        | 看什么                                            |
+| ------------------------- | ---------------------------------------------- |
+| `config/MySessionManager` | **sessionId 来自 `Authorization` 请求头，不是 Cookie** |
+| `config/MyShiroRealm`     | 登录不用密码，用 **TOTP 动态码**，另外还有一条 SSO 分支            |
 | `config/ShiroConfig`      | Shiro 过滤链的 `/**` = authc **被注释掉了**             |
-| `config/MyInterceptor`    | 拦截未登录（`roleId == -1`）                            |
+| `config/MyInterceptor`    | 拦截未登录（`roleId == -1`）                          |
 
 **这里有条必须记住的规矩**：因为全局 `authc` 是关掉的，**新增接口时忘了加 `@RequiresPermissions`，等于对所有登录用户开放**，Shiro 不会兜底。这是最容易在 code review 被打回的点。
 
