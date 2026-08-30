@@ -1,4 +1,7 @@
-我把一条真实的请求从「你点击页面」追到「数据库」全程验证了一遍。下面用这条线来讲整个项目。
+# manager-website 项目概览
+
+> 面向 Java 后端开发的前端阅读笔记 · 基于 `cze` 分支（= release 同一提交）
+> 讲法：把一条真实请求从「点击页面」追到「数据库」，用这条线串起整个项目。
 
 ---
 
@@ -54,21 +57,37 @@ let tableIns = view.table('#dataList', 'shiro://customerCenter/kycDossier/list',
 });
 ```
 
-**为什么 .htm 和 .js 能自动配对？** 因为 `layout.js:100` 这一行：
+**为什么 .htm 和 .js 能自动配对？**
+
+```javascript
+let setter = {  
+    container: 'LAY_app' //容器ID  
+    , version: '20210120'  
+    , base: layui.cache.base //记录layuiAdmin文件夹所在路径  
+    
+    ...
+}
+```
+
+因为 `layout.js:100` 这一行改变了 layui 的"查找规则"：
 
 ```js
 layui.config({base: setter.base + "controller/", version: setter.version});
 ```
 
-它把 layui 的模块根目录重定向到了 `controller/`。于是**同名路径自动对应**：
+layui 是一个模块化框架，要加载一个模块时，它会去某个"根目录"下按名字找文件。这行代码把那个根目录改成了 `controller/`。
+
+于是框架的逻辑就变成：当加载 `screen/customerCenter/kycDossier.htm` 这个页面时，自动去找 `controller/customerCenter/kycDossier.js`。路径后半段 `customerCenter/kycDossier` 两边**完全一样**，只是一个放在 `screen/` 下，一个放在 `controller/` 下。
+
+这不是智能算法，就是**路径字符串必须完全一致**的一个约定。三个文件路径必须严格对应：
 
 ```
-views/screen/customerCenter/kycDossier.htm
-static/js/controller/customerCenter/kycDossier.js   ← 自动加载
-views/tpl/customerCenter/*.tpl                      ← 弹窗模板
+html/views/screen/<模块>/<页面>.htm         ← 页面骨架
+html/static/js/controller/<模块>/<页面>.js  ← 逻辑代码（同名路径，自动加载）
+html/views/tpl/<模块>/*.tpl                 ← 弹窗/详情模板（手动加载）
 ```
 
-新增页面时这三处路径必须严格对应，写错一个字母页面就是白的（而且不报错）。
+写错一个字母，框架找不到 JS 文件，页面空白——且**不报任何错误**，很容易让你以为是后端问题查半天。
 
 ### 第 3 站 · 假 URL 被翻译成真 URL
 
