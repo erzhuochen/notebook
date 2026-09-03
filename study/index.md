@@ -11,6 +11,7 @@
 | [SSE](./network/SSE/) | `#前端` `#网络` `#实时通信` | 2026-09-03 | Server-Sent Events 单向推送协议、数据格式与生产实践 |
 | [RPC](./java-template/rpc/) | `#后端` `#Java` `#微服务` | 2026-09-03 | RPC 原理与 Dubbo/gRPC 工程实践、生产环境配置要点 |
 | [跨域](./java-template/跨域/) | `#后端` `#前端` `#安全` | 2026-09-03 | 同源策略与 CORS 原理，Nginx/Spring 生产配置方案 |
+| [Web 安全](./network/web安全/) | `#安全` `#后端` `#前端` | 2026-09-03 | XSS/CSRF/SQL 注入等常见漏洞的原理、边界与防御手段 |
 
 ---
 
