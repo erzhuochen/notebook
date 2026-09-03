@@ -4,8 +4,14 @@
 
 ## 已学习的主题
 
-- [WebSocket](./websocket/) - WebSocket 协议和实现原理
+| 主题 | 标签 | 更新日期 | 简述 |
+|------|------|----------|------|
+| [HTTP 连接管理](./network/HTTP/) | `#网络` `#后端` `#性能优化` | 2026-09-03 | HTTP 长连接（Keep-Alive）原理，与长轮询/SSE/WebSocket 的区别 |
+| [WebSocket](./network/websocket/) | `#前端` `#网络` `#实时通信` | 2026-09-03 | WebSocket 协议和实现原理，包含握手、心跳、重连机制 |
+| [SSE](./network/SSE/) | `#前端` `#网络` `#实时通信` | 2026-09-03 | Server-Sent Events 单向推送协议、数据格式与生产实践 |
+| [RPC](./java-template/rpc/) | `#后端` `#Java` `#微服务` | 2026-09-03 | RPC 原理与 Dubbo/gRPC 工程实践、生产环境配置要点 |
+| [跨域](./java-template/跨域/) | `#后端` `#前端` `#安全` | 2026-09-03 | 同源策略与 CORS 原理，Nginx/Spring 生产配置方案 |
 
 ---
 
-*更新日期：2026-09-03*
+*本索引由 AI 自动维护*
