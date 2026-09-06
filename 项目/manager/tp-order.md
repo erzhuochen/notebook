@@ -450,3 +450,574 @@ private static final String createOrderKey = "recharge-order-lock-";  // Redis �
 5. **redisService.set()** - Redis 存储（临时订单数据，用于后续流程查询）
 
 需要深入解释哪些方法？（输入方法名或序号，或"无"结束）
+
+
+
+我来系统地解释这些金额和汇率字段之间的关系。这是一个涉及多级货币兑换的复杂系统。
+
+## 核心概念图解
+
+### 1. 三个金额字段
+
+```
+汇款流程：
+┌─────────────┐        ┌──────────────┐        ┌─────────────┐
+│  汇款人支付  │  兑换  │  中间结算    │  兑换  │  收款人到账  │
+│             │  ───→  │  (可选)      │  ───→  │             │
+│ sourceAmount│        │settleAmount  │        │targetAmount │
+│  (支付货币) │        │ (结算货币)   │        │ (目标货币)  │
+└─────────────┘        └──────────────┘        └─────────────┘
+     USD                     CNY                    PHP
+    (美元)                  (人民币)               (菲律宾比索)
+```
+
+### 2. 四个汇率字段
+
+```
+businessRate  - 业务汇率：展示给用户的汇率（sourceAmount → targetAmount 的总体汇率）
+pandaRate     - 平台汇率：通常与 businessRate 相同，平台内部使用
+rate          - 折算汇率：实际计算用汇率，可能包含额外费用
+settleRate    - 结算汇率：settleAmount → targetAmount 的汇率（仅在使用结算货币时）
+```
+
+---
+
+## 场景详解
+
+### 场景 1：本币支付（无需兑换）
+
+**条件**：`sourceCurrency == targetCurrency`
+
+**示例**：用户用澳元支付，收款人收澳元
+```
+支付：100 AUD  →  到账：100 AUD
+
+金额关系：
+  sourceAmount  = 100 AUD
+  targetAmount  = 100 AUD
+  settleAmount  = null（不需要结算）
+
+汇率关系：
+  businessRate = "1"
+  pandaRate    = "1"
+  rate         = "1"
+  settleRate   = null
+
+代码位置：createExecute 第 2316-2320 行
+```
+
+---
+
+### 场景 2：跨币种支付，无结算货币
+
+**条件**：`sourceCurrency ≠ targetCurrency`，且 `settleAmount == null`
+
+**示例**：用户用美元支付，收款人收菲律宾比索
+```
+支付：100 USD  →  到账：5650 PHP
+
+步骤：
+1. 查询 USD → PHP 汇率：1 USD = 56.5 PHP
+2. 计算充值金额：5650 / 56.5 = 100 USD
+
+金额关系：
+  targetAmount  = 5650 PHP（用户指定）
+  businessRate  = "56.5"（从汇率服务获取）
+  sourceAmount  = 5650 / 56.5 = 100 USD（计算得出）
+
+汇率关系：
+  businessRate = "56.5"（查询得到）
+  pandaRate    = "56.5"
+  rate         = "56.8"（可能略高，包含手续费）
+
+公式：
+  sourceAmount = targetAmount / businessRate
+
+代码位置：
+  - 查询汇率：createExecute 第 2333-2343 行
+  - 计算金额：createExecute 第 2349-2350 行
+```
+
+---
+
+### 场景 3：有结算货币，且结算货币 = 支付货币
+
+**条件**：`settleAmount != null` 且 `settleCurrency == sourceCurrency`
+
+**示例**：用户指定用 100 USD 结算，收款人收 5650 PHP
+```
+支付：100 USD  →  结算：100 USD  →  到账：5650 PHP
+       (支付货币)     (结算货币)      (目标货币)
+
+步骤：
+1. 用户已经指定了结算金额：100 USD
+2. 计算结算汇率：5650 / 100 = 56.5
+3. 因为支付货币 = 结算货币，充值金额 = 结算金额
+
+金额关系：
+  settleAmount  = 100 USD（用户指定）
+  targetAmount  = 5650 PHP（用户指定）
+  sourceAmount  = 100 USD（= settleAmount）
+
+汇率关系：
+  settleRate   = "56.5"（计算：targetAmount / settleAmount）
+  businessRate = "56.5"
+  pandaRate    = "56.5"
+  rate         = "56.5"
+
+公式：
+  settleRate = targetAmount / settleAmount
+  sourceAmount = settleAmount（因为货币相同）
+
+代码位置：createExecute 第 2325-2331 行
+```
+
+---
+
+### 场景 4：有结算货币，且结算货币 ≠ 支付货币（最复杂）
+
+**条件**：`settleAmount != null` 且 `settleCurrency ≠ sourceCurrency`
+
+**示例**：用户用新加坡元支付，通过美元结算，收款人收菲律宾比索
+```
+支付：139 SGD  →  结算：100 USD  →  到账：5650 PHP
+     (支付货币)     (结算货币)       (目标货币)
+
+步骤：
+1. 用户指定结算金额：100 USD，到账金额：5650 PHP
+2. 查询 SGD → USD 汇率：1 USD = 1.39 SGD
+3. 计算充值金额：100 * 1.39 = 139 SGD
+4. 重新计算总体汇率：5650 / 139 = 40.65（给用户看的 SGD → PHP 总汇率）
+
+金额关系：
+  settleAmount  = 100 USD（用户指定）
+  targetAmount  = 5650 PHP（用户指定）
+  sourceAmount  = 139 SGD（通过汇率服务计算）
+
+汇率关系（两段）：
+  第一段（SGD → USD）：
+    settleRate   = "1.39"（查询得到）
+  
+  第二段（USD → PHP）：
+    settleRate   = "56.5"（计算：5650 / 100）
+  
+  总体（SGD → PHP，给用户看）：
+    businessRate = "40.65"（重新计算：5650 / 139）
+    pandaRate    = "40.65"
+
+公式：
+  第一步：查询 sourceCurrency → settleCurrency 汇率
+  第二步：sourceAmount = settleAmount / 查询到的汇率
+  第三步：businessRate = targetAmount / sourceAmount（重新计算总体汇率）
+
+代码位置：
+  - 查询汇率：createExecute 第 2333-2346 行
+  - 计算金额：createExecute 第 2349-2350 行
+  - 重算汇率：createExecute 第 2352-2357 行
+```
+
+---
+
+## 关键计算公式总结
+
+### 基本公式
+```java
+// 汇率的基本定义
+汇率 = 目标金额 / 源金额
+
+// 金额计算（已知汇率和目标金额，求源金额）
+sourceAmount = targetAmount / rate
+```
+
+### 无结算货币场景
+```java
+// 直接兑换
+sourceAmount = targetAmount / businessRate
+
+// 示例：到账 5650 PHP，汇率 56.5
+// sourceAmount = 5650 / 56.5 = 100 USD
+```
+
+### 有结算货币场景（结算货币 = 支付货币）
+```java
+// 计算结算汇率
+settleRate = targetAmount / settleAmount
+
+// 充值金额 = 结算金额
+sourceAmount = settleAmount
+
+// 示例：结算 100 USD，到账 5650 PHP
+// settleRate = 5650 / 100 = 56.5
+// sourceAmount = 100 USD
+```
+
+### 有结算货币场景（结算货币 ≠ 支付货币）
+```java
+// 第一步：查询 sourceCurrency → settleCurrency 汇率（调用汇率服务）
+// 第二步：计算充值金额
+sourceAmount = settleAmount / queryRate
+
+// 第三步：重新计算总体汇率（给用户展示）
+businessRate = targetAmount / sourceAmount
+
+// 示例：支付 SGD，结算 100 USD，到账 5650 PHP
+// queryRate = 1.39（1 USD = 1.39 SGD）
+// sourceAmount = 100 / 1.39 = 71.94 SGD
+// businessRate = 5650 / 71.94 = 78.54（1 SGD = 78.54 PHP）
+```
+
+---
+
+## 为什么需要这么复杂的设计？
+
+### 1. 结算货币的作用
+```
+问题：某些货币对没有直接汇率市场
+  SGD → PHP（新加坡元 → 菲律宾比索）直接汇率可能流动性差、波动大
+
+解决：通过 USD 中转
+  SGD → USD → PHP（两段汇率都很稳定）
+```
+
+### 2. 多个汇率字段的作用
+```
+businessRate - 给用户看的汇率（简化的总体汇率）
+pandaRate    - 平台内部使用（通常与 businessRate 相同）
+rate         - 实际计算用（可能包含手续费、汇率波动保护）
+settleRate   - 结算环节的汇率（财务对账用）
+```
+
+### 3. 为什么要重新计算 businessRate（第 2352-2357 行）
+```
+用户视角：我用 SGD 支付，收款人收 PHP，我关心的是 SGD → PHP 的汇率
+
+系统实际：SGD → USD（汇率 1.39）→ PHP（汇率 56.5）
+
+问题：如果直接告诉用户两段汇率，太复杂
+
+解决：重新计算总体汇率
+  用户支付：139 SGD
+  收款人收：5650 PHP
+  展示汇率：1 SGD = 40.65 PHP（5650 / 139）
+  
+用户体验：简单明了，不需要理解中间的美元结算过程
+```
+
+---
+
+## 实际示例代码追踪
+
+以**场景 4**为例，追踪代码执行流程：
+
+```java
+// 假设参数
+CreateOrderParameters parameters:
+  - sourceCurrency: "SGD"
+  - targetCurrency: "PHP"
+  - targetAmount: "5650"
+  - userId: "user123"
+
+Order applyOrder（来自 createBefore）:
+  - settleCurrency: "USD"
+  - settleAmount: Money("USD", "100")
+
+// ========== createExecute 执行流程 ==========
+
+// 第 2313 行：设置到账金额
+applyOrder.setTargetAmount(new Money("PHP", "5650"));
+// 结果：targetAmount = 5650 PHP
+
+// 第 2316 行：判断是否本币支付
+if ("SGD".equals("PHP")) {  // false，进入 else
+  
+  // 第 2322 行：判断是否有结算货币
+  boolean isSettle = applyOrder.getSettleAmount() != null;  // true
+  
+  // 第 2323 行：判断结算货币是否等于支付货币
+  boolean isSameCurrency = true && "USD".equals("SGD");  // false
+  
+  // 第 2325 行：isSameCurrency = false，跳过
+  
+  // 第 2333 行：查询汇率（SGD → USD → PHP）
+  RateDetailV2 rateDetail = queryTopUpRate("SG", "SGD", "USD", "PHP", "Novatti", true);
+  // 返回：rateDetail.getPandaRate() = "1.39"（SGD → USD）
+  
+  // 第 2341-2346 行：设置汇率
+  applyOrder.setBusinessRate("1.39");
+  applyOrder.setPandaRate("1.39");
+  applyOrder.setRate("1.39");
+  applyOrder.setSettleRate("1.39");  // 因为 isSettle = true
+  
+  // 第 2349-2350 行：计算充值金额
+  // sourceAmount = settleAmount / settleRate
+  applyOrder.setSourceAmount(Money.foreignExchangeByDivide(
+    Money("USD", "100"),  // settleAmount
+    new BigDecimal("1.39"),  // settleRate
+    "SGD"
+  ));
+  // 结果：sourceAmount = 100 / 1.39 = 71.94 SGD
+  
+  // 第 2352 行：判断需要重新计算总体汇率
+  if (true && true) {  // !isSameCurrency && isSettle
+    
+    // 第 2353-2354 行：重新计算 SGD → PHP 总体汇率
+    String pandaRate = new BigDecimal("5650")  // targetAmount.getLi()
+      .divide(new BigDecimal("71.94"), 11, RoundingMode.HALF_UP)
+      .toString();
+    // 结果：pandaRate = "78.54"（1 SGD = 78.54 PHP）
+    
+    // 第 2355-2356 行：更新业务汇率
+    applyOrder.setBusinessRate("78.54");
+    applyOrder.setPandaRate("78.54");
+    // 注意：rate 和 settleRate 保持不变（用于内部计算）
+  }
+}
+
+// ========== 最终订单状态 ==========
+applyOrder:
+  - sourceAmount: 71.94 SGD（用户需要支付）
+  - settleAmount: 100 USD（中间结算金额）
+  - targetAmount: 5650 PHP（收款人到账）
+  - businessRate: "78.54"（展示给用户：1 SGD = 78.54 PHP）
+  - pandaRate: "78.54"（平台内部）
+  - rate: "1.39"（实际计算用：SGD → USD）
+  - settleRate: "1.39"（结算汇率：SGD → USD）
+```
+
+---
+
+通过这个完整的梳理，可以看到这个汇率系统的设计目的是：
+1. **灵活性**：支持直接兑换和中间结算两种模式
+2. **透明性**：给用户展示简化的总体汇率
+3. **准确性**：内部保留详细的分段汇率用于计算和对账
+
+
+Perfect! Now I have all the information. Let me generate the detailed explanation:
+
+---
+
+## OrderServiceWrapper.commitOrderBefore 方法解析
+
+**业务术语表**：
+- **PartnerSeqNo**: 合作伙伴订单号，外部系统（商户）传入的订单流水号
+- **KYC Route (KYC 路由)**: 根据商户和国家配置的 KYC 流程路由规则
+- **Panda 系统**: 推测为内部的订单管理或风控系统
+- **PdUserId**: Panda 系统的用户 ID
+- **CreateOrder 标识**: KYC 路由中的配置标识，决定是否需要在 Panda 系统中创建订单
+- **FundingType**: 资金类型（例如银行转账、信用卡等）
+- **ExtraFee**: 额外手续费
+
+**方法概述**：
+这是订单提交前的预处理方法，负责防重复订单检查、查询 KYC 信息、计算手续费，以及根据 KYC 路由配置决定是否需要在 Panda 系统中创建关联订单。这是订单创建流程的重要前置环节。
+
+**相关上下文**：
+```java
+@Resource
+private PayerClient payerClient;  // 汇款人服务客户端，查询 KYC 信息
+
+@Resource
+private ApplyOrderDao applyOrderDao;  // 订单数据访问对象，查询订单记录
+
+@Resource
+private KycRouteMapper kycRouteMapper;  // KYC 路由配置，决定订单创建流程
+
+@Resource
+private UsersDao usersDao;  // 用户数据访问对象，查询用户信息
+
+@Resource
+private CommonConfigs commonConfigs;  // 通用配置，包含 Panda 系统 URL
+```
+
+**代码逐行解释**：
+
+### 第一部分：防重复订单检查
+
+```java
+83   public ResultRich<Order> commitOrderBefore(Order order) {  // 订单提交前置处理，参数为待创建的订单对象
+84       try {
+85           //查询订单信息
+86           ApplyOrderDo applyOrderDo = applyOrderDao.selectByPartnerSeqNo(order.getPartnerSeqNo());  // 根据合作伙伴订单号查询是否已存在订单
+87           if (applyOrderDo != null) {  // 如果订单已存在（防重复提交）
+88               log.info("该订单以被创建:{}", applyOrderDo.getPartnerSeqNo());
+89               Order result = new Order();  // 创建返回对象
+90               BeanUtils.copyProperties(applyOrderDo, result);  // 复制已存在订单的数据
+91               result.setUserId(applyOrderDo.getUserId());  // 设置用户 ID
+92               result.setSeqNo(applyOrderDo.getSeqNo());  // 设置系统内部订单号
+93               result.setPartnerOrderId(applyOrderDo.getOrderIdIn3rdSys());  // 设置第三方系统订单 ID
+94               ResultRich<Order> returnResult = new ResultRich<>();  // 创建返回结果对象
+95               returnResult.setCode(ErrorCode.ORDER_HAS_CREATED.getCode());  // 设置错误码：订单已创建
+96               returnResult.setModel(result);  // 返回已存在的订单信息
+97               return returnResult;  // ⚠️ 异常处理：订单重复，返回已有订单信息
+98           }
+```
+
+### 第二部分：查询 KYC 信息和计算手续费
+
+```java
+99
+100          //获取kyc信息
+101          Payer payer = new Payer();  // 创建汇款人查询对象
+102          payer.setUserId(order.getUserId());  // 设置用户 ID
+103          payer.setCountryCode(order.getCountryCode());  // 设置国家代码
+104          ResultRich<Payer> payerResult = payerClient.queryKycInfo(payer);  // 远程调用：查询汇款人 KYC 信息
+105          if (payerResult.getCode() == ResultRich.SUCCESS_CODE && payerResult.getModel() != null) {  // 如果查询成功
+106              order.setPayerId(payerResult.getModel().getId());  // 设置汇款人 ID 到订单
+107          }
+108
+109          //计算支付方式对应的手续
+110          this.calculate(order);  // 调用手续费计算方法（根据支付方式、金额、国家等计算手续费）
+```
+
+### 第三部分：KYC 路由判断和 Panda 系统订单创建
+
+```java
+111
+112          Users selected = usersDao.selectByUid(order.getUserId());  // 查询用户详细信息
+113          log.info("用户信息：{}", JSONObject.toJSONString(selected));
+114          if (selected != null && StringUtils.isNotEmpty(selected.getPdUserId())) {  // 如果用户存在且有 Panda 用户 ID
+115              List<KycRoute> kycRoutes = kycRouteMapper.selectByCondition(selected.getMerchantNo(), null, CountryEnum.isEurCountry(order.getCountryCode()) ? "EU" : order.getCountryCode());  // 查询 KYC 路由配置（根据商户号和国家码）
+116              log.info("kyc路由信息：{}", JSONObject.toJSONString(kycRoutes));
+117              if (kycRoutes != null && !kycRoutes.isEmpty() && kycRoutes.get(0).getCreateOrder() == 1) {  // 如果路由配置存在且 createOrder 标识为 1（需要在 Panda 系统创建订单）
+118                  JSONObject pandaOrder = new JSONObject();  // 创建 Panda 订单请求对象
+119                  pandaOrder.put("userId", selected.getPdUserId());  // Panda 用户 ID
+120                  pandaOrder.put("countryCode", order.getCountryCode());  // 国家代码
+121                  pandaOrder.put("sourceCurrency", order.getSourceAmount().getCurrencyCode());  // 支付货币代码
+122                  pandaOrder.put("sourceAmount", order.getSourceAmount().getYuanAmount());  // 支付金额（元单位）
+123                  pandaOrder.put("type", order.getFundingType());  // 资金类型
+124                  pandaOrder.put("remitType", 0);  // 汇款类型（0 表示标准汇款，推测）
+125                  pandaOrder.put("feeAmount", order.getFeeAmount().getYuanAmount());  // 手续费金额（元单位）
+126                  pandaOrder.put("extraFeeAmount", StringUtils.isNotEmpty(order.getExtraFee()) ? new BigDecimal(order.getExtraFee()).divide(new BigDecimal(1000), 2, RoundingMode.HALF_UP) : new BigDecimal("0"));  // 额外手续费（从分转为元，除以 1000 并保留 2 位小数）
+127                  log.info("panda创建订单参数:{}", JSONObject.toJSONString(pandaOrder));
+128                  HttpResponse response = HttpUtils.doPost(commonConfigs.getPandaCreateOrderUrl(), new HashMap<>(), JSONObject.toJSONString(pandaOrder));  // HTTP POST 调用 Panda 创建订单接口
+129                  String ress = HttpUtils.dealResponse(response);  // 处理响应，提取 JSON 字符串
+130                  log.info("panda创建订单结果:{}", ress);
+131                  ResultRich<JSONObject> resultRich = JSONObject.parseObject(ress, new TypeReference<ResultRich<JSONObject>>() {
+132                  });  // 解析 JSON 响应
+133                  if (!resultRich.isSuc() || resultRich.getModel() == null) {  // 如果 Panda 创建订单失败
+134                      log.info("panda创建订单失败:{}", JSONObject.toJSONString(resultRich));
+135                      return ResultRich.newInstance(resultRich.getCode(), resultRich.getMsg());  // ⚠️ 异常处理：返回 Panda 系统的错误信息
+136                  }
+137                  JSONObject pandaRes = JSONObject.parseObject(JSONObject.toJSONString(resultRich.getModel()), JSONObject.class);  // 提取 Panda 返回的订单数据
+138                  if (StringUtils.isNotEmpty(pandaRes.getString("seqNo"))) {  // 如果返回了 Panda 订单号
+139                      order.setPandaSeqNo(pandaRes.getString("seqNo"));  // 设置 Panda 订单号到当前订单（关联两个系统的订单）
+140                  }
+141                  if (StringUtils.isNotEmpty(pandaRes.getString("paymentLink")) && order.getCountryCode().equals(CountryEnum.NewZealand.getMsg())) {  // 如果是新西兰订单且返回了支付链接
+142                      order.setPaymentLink(pandaRes.getString("paymentLink"));  // 设置支付链接（推测为新西兰特定的支付跳转链接）
+143                  }
+144              }
+145          }
+146          log.info("commit order 结果:{}", JSONObject.toJSONString(order));
+147          return ResultRich.newInstance(order);  // 返回处理完成的订单对象
+148      } catch (Exception e) {
+149          log.info("commit order 异常:{}", e);
+150          return ResultRich.newInstance(ErrorCode.SYSTEM_ERROR);  // ⚠️ 异常处理：捕获所有异常，返回系统错误
+151      }
+152  }
+```
+
+**复杂逻辑详解**：
+
+- **第 115 行**（KYC 路由查询逻辑）：
+  ```
+  selectByCondition(商户号, null, 国家码)
+  
+  特殊处理：欧盟国家统一使用 "EU" 作为国家码
+  - 如果是欧盟国家：CountryEnum.isEurCountry() 返回 true，使用 "EU"
+  - 如果不是欧盟：使用具体国家码（例如 "AU"、"NZ"）
+  
+  目的：欧盟国家 KYC 规则统一，使用同一套路由配置
+  ```
+
+- **第 117 行**（createOrder 标识判断）：
+  ```
+  kycRoutes.get(0).getCreateOrder() == 1
+  
+  业务含义：
+  - createOrder = 1：需要在 Panda 系统中创建关联订单（可能用于风控、额度管理）
+  - createOrder = 0：不需要在 Panda 系统创建（简化流程，降低系统耦合）
+  
+  使用场景推测：
+  - 高风险国家/商户：需要 Panda 系统双重审核
+  - 低风险国家/商户：跳过 Panda 流程，加快订单处理
+  ```
+
+- **第 126 行**（额外手续费转换）：
+  ```
+  new BigDecimal(order.getExtraFee()).divide(new BigDecimal(1000), 2, RoundingMode.HALF_UP)
+  
+  拆解：
+  1. order.getExtraFee() - 获取额外手续费（存储单位：厘，1元 = 1000厘）
+  2. new BigDecimal(...) - 转换为高精度数值
+  3. .divide(new BigDecimal(1000), 2, RoundingMode.HALF_UP)
+     - 除以 1000：厘 → 元
+     - 保留 2 位小数
+     - 四舍五入
+  
+  示例：
+    extraFee = "1500"（厘）
+    转换后 = 1500 / 1000 = 1.50（元）
+  ```
+
+- **第 141-142 行**（新西兰支付链接）：
+  ```
+  特殊处理：仅新西兰订单需要支付链接
+  
+  推测原因：
+  - 新西兰可能使用特定的支付网关（例如 POLi）
+  - 需要跳转到外部支付页面完成支付
+  - 其他国家可能使用内嵌支付或其他方式
+  ```
+
+**被调用的业务方法**：
+1. **applyOrderDao.selectByPartnerSeqNo()** - 根据合作伙伴订单号查询订单（防重复提交检查）
+2. **payerClient.queryKycInfo()** - 远程调用：查询汇款人 KYC 审核状态和信息
+3. **calculate()** - 计算订单手续费（根据支付方式、国家、金额等因素）
+4. **usersDao.selectByUid()** - 查询用户详细信息（包含 Panda 用户 ID、商户号）
+5. **kycRouteMapper.selectByCondition()** - 查询 KYC 路由配置（决定订单创建流程）
+6. **HttpUtils.doPost()** - HTTP POST 请求工具（调用 Panda 系统创建订单接口）
+
+**业务流程图**：
+```
+┌─────────────────────────────────────────┐
+│ 1. 检查订单是否已存在（PartnerSeqNo）    │
+└────────┬────────────────────────────────┘
+         │ 存在 → 返回已有订单
+         │ 不存在 ↓
+┌─────────────────────────────────────────┐
+│ 2. 查询汇款人 KYC 信息                   │
+│    设置 PayerId 到订单                   │
+└────────┬────────────────────────────────┘
+         ↓
+┌─────────────────────────────────────────┐
+│ 3. 计算手续费（calculate 方法）          │
+└────────┬────────────────────────────────┘
+         ↓
+┌─────────────────────────────────────────┐
+│ 4. 查询用户信息（是否有 PdUserId）       │
+└────────┬────────────────────────────────┘
+         │ 有 PdUserId ↓
+┌─────────────────────────────────────────┐
+│ 5. 查询 KYC 路由配置                     │
+│    （根据商户号和国家码）                │
+└────────┬────────────────────────────────┘
+         │ createOrder = 1 ↓
+┌─────────────────────────────────────────┐
+│ 6. 调用 Panda 系统创建关联订单           │
+│    - 构造请求参数                        │
+│    - HTTP POST 调用                      │
+│    - 保存 PandaSeqNo 到订单              │
+│    - 新西兰订单保存支付链接              │
+└────────┬────────────────────────────────┘
+         ↓
+┌─────────────────────────────────────────┐
+│ 7. 返回处理完成的订单对象                │
+└─────────────────────────────────────────┘
+```
+
+**容错机制**：
+1. 订单已存在 → 返回已有订单信息（幂等性保证）
+2. KYC 查询失败 → 不设置 PayerId，继续流程（非阻塞）
+3. Panda 订单创建失败 → 中断流程，返回错误（阻塞，因为路由配置要求必须创建）
+4. 所有异常 → 返回系统错误（统一异常处理）
+
+需要深入解释哪些方法？（输入方法名或序号，或"无"结束）
