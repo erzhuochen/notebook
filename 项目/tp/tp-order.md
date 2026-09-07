@@ -1,4 +1,31 @@
-# 一、通用方法论：新项目按这 5 步走
+# tp-order 项目笔记
+
+> **一句话定位**：跨境汇款订单的**编排层 / 路由层**。它不落地具体国家的支付逻辑，而是做「幂等去重 → 补 KYC → 算费 → 按国家路由 → 转发给国家微服务 → 收结果、回写、发通知」。
+
+| 项 | 值 |
+|---|---|
+| 仓库 | `D:\workspace\tp\tp-order` |
+| 服务名 | `service-tp-order` |
+| 端口 / 前缀 | `9102` / `/order` |
+| 技术栈 | Spring Boot 2.7.6 · Java 11 · Spring Cloud Alibaba(Nacos) · OpenFeign · MyBatis(tk) · Druid · Redis · RocketMQ · RabbitMQ |
+| 内部依赖 | `tp-core`（工具 / Result）· `tp-entity`（实体 / 枚举，**枚举都在这**） |
+| 笔记更新 | 2026-09-07 |
+
+## 导航
+
+| 章节 | 内容 | 什么时候看 |
+|---|---|---|
+| [[#一、上手方法论]] | 通用的读新项目方法 | 换项目时复用 |
+| [[#二、项目骨架与架构认知]] | 技术栈、create/commit、编排层本质、外部边界 | 第一天 |
+| [[#三、业务链路全景]] | 6 条主链路的完整调用栈 | **主力参考** |
+| [[#四、状态机]] | 两个状态字段 + 全枚举 | 读任何链路前先看 |
+| [[#五、坑与反模式清单]] | 踩过 / 发现的雷 | 改代码前扫一遍 |
+| [[#六、学习进度与待确认]] | 已完成 / 待办 / 要问 leader 的问题 | 每周更新 |
+| [[#七、源码深度解析]] | 逐行解析（createBefore / createExecute / 汇率 / commitOrderBefore） | 深挖时 |
+
+---
+
+# 一、上手方法论
 
 核心原则：**先建立骨架认知，再垂直打穿一条线，最后横向铺开**。绝对不要一上来就一个个文件读。
 
@@ -13,7 +40,7 @@
 
 ---
 
-# 二、用 tp-order 实操
+# 二、项目骨架与架构认知
 
 ## 第 1 步：骨架（5 分钟）
 
@@ -109,6 +136,17 @@ public interface AUOrderService extends BaseOrderService {
 | EUR  | service-tp-euorder | NZD  | service-tp-nzorder |
 | USD  | service-tp-usorder |      |                    |
 
+## 第 4 步：找数据 —— 表与状态机
+
+业务系统的本质是数据流转，**状态机是骨髓**。这一步的产出就是后面两章：
+
+- 全部链路见 [[#三、业务链路全景]]
+- 两个状态字段和全枚举见 [[#四、状态机]]
+
+主表：`apply_order`（`pojo/model/ApplyOrderDo` + `resources/mapper/ApplyOrderMapper.xml`）。
+
+注意各国还有**分表**（`CanTxn` / `EurTxn` / `HkgTxn` / `IdnTxn` / `JpnTxn` / `KorTxn` …）。主表在本服务，分表由国家服务维护 —— `cancel` 链路里"修改分表状态"就是这个意思。
+
 ## 第 5 步：外部边界（`client/` 包，12 个 Feign）
 
 ```
@@ -122,37 +160,343 @@ provider-common      公共组件
 
 看到这张表，你就知道：**任何一个字段查不到来源，先问它是不是从这 12 个服务之一拿的。**
 
----
-
-# 三、给你的下一步动作清单
-
-按优先级：
-
-1. **读三个 DTO**：`CreateOrderParameters` / `Order` / `ApplyOrder`（在 `tp-entity` 仓库）。
-   *接口的参数和返回值是最浓缩的业务文档，比读实现快 10 倍。*
-
-2. **读两个状态枚举**：`ApplyOrderStatus` / `ApplyOrderPaymentStatus`。
-   在 `OrderController.java:1114` 的超时任务、`commitOrderBefore` 里到处都是它们。**订单系统的核心就是状态机**，把这两个枚举的取值和流转画出来，你就懂一半了。
-
-3. **读表**：`src/main/resources/mapper/ApplyOrderMapper.xml` + `pojo/model/ApplyOrderDo`。
-
-4. **展开 `createBefore` / `createExecute`**（`ApplyOrderServiceImpl.java:2089` 往上找）。这是我这次没展开的部分，留给你练手。
-
-5. **本地起一个 debug**：`/create` 拿到 `seqNo`，再拿它调 `/commit`，在 `OrderController.java:150` 打断点走一遍。**跑通一次胜过读十遍。**
 
 ---
 
-# 四、顺带教你「批判性读代码」
+# 三、业务链路全景
 
-新人常犯的错是把代码当圣经。这个项目里就有两个例子：
+## 3.0 四类入口
+
+```
+① HTTP 同步    13 个 Controller（前端 / 商户 / 运营后台 / 其它微服务）
+② HTTP 回调    push/*、v2/push/*      ← 第三方和国家服务反向通知
+③ RocketMQ     ORDER_CLEARING_TOPIC   ← 全项目唯一的 MQ 消费者
+④ 定时触发     GET 端点被外部调度器调（本项目没有 @Scheduled，全是"伪定时"）
+```
+
+> ⚠️ **④ 最容易漏**：`/client/syncOrderTimeout`、`/applyOrder/expire`、`/applyOrder/timer/get/nova/txn` 这些 GET 接口就是定时任务，由外部调度中心打进来。看着像查询接口，其实是任务入口。
+
+### Controller 路由总表
+
+| 类 | 前缀 | 用途 |
+|---|---|---|
+| `OrderController` | `client` | **交易主流程**（36 个端点，核心） |
+| `ApplyOrderController` | `/applyOrder` | 运营后台 / 定时任务（40+ 端点） |
+| `OrderPushController` | `push` | 到账通知（V1） |
+| `OrderPushV2Controller` | `v2/push` | 状态回调 / 结算通知（V2） |
+| `PaymentController` | `/payment` | POLI 对账清分 |
+| `PandaController` | `panda` | Panda 侧接入 |
+| `GvpOrderController` | `/gvp` | GVP 渠道订单 |
+| `CardController` | `/card` | 银行卡 |
+| `CountryPaymentMethodController` | `/payment/method` | 支付方式配置 |
+| `ActivityFeeController` | `/activity/fee` | 活动费率 |
+| `IdentitySupportController` | `/identity/support` | 证件支持 |
+| `OccupiedCountryController` | `/occupied/country` | 国家占用 |
+| `BeatController` | — | 心跳 |
+
+---
+
+## 3.1 链路一：下单主干
+
+```
+POST /client/create        OrderController:137   预创建，落 ApplyOrder，返回 seqNo
+POST /client/pay/types     OrderController:734   查该国可用支付方式
+POST /client/createPayment OrderController:682   ★ 创建支付（拿支付链接 / 银行转账信息）
+POST /client/commit        OrderController:150   提交，路由到国家服务
+```
+
+### `/create`（:137）
+
+```
+ApplyOrderServiceImpl.createOrder()                    :2089
+├─ createBefore(parameters)    商户校验 / KYC / 汇款人收款人 / 同名校验
+└─ createExecute(parameters)   汇率与金额计算 → 落库 → 返回 seqNo
+```
+
+逐行解析见 [[#七、源码深度解析]]
+
+### `/createPayment`（:682）
+
+比 commit 更能体现项目的分叉逻辑。
+
+```
+setCountryCode(param)              ← 没传国家码就反查订单补上（★ 全项目高频模式）
+isPandaOrder(param)                OrderController:1155
+├─ 是 Panda 单 → pandaHttp() 裸 HTTP 打到 Panda，再 restorePandaSpecialId 把 ID 换回来
+└─ 不是       → loadService(param).createPayment()   Feign → 国家服务
+```
+
+> 🔑 **Panda 暗线**：`isPandaOrder` 查 `KycRoute` 表决定走哪条路。这条分叉在 `commitOrderBefore`、`createPayment`、`v2/push/*` 里反复出现，**是贯穿全项目的一条暗线**。先把它认出来，后面读什么都顺。
+
+### `/commit`（:150）
+
+```
+1. orderServiceWrapper.commitOrderBefore(order)        OrderServiceWrapper:83
+   ├─ 按 partnerSeqNo 查库 → 已存在返回 ORDER_HAS_CREATED（★ 幂等）
+   ├─ payerClient.queryKycInfo()  → 远程取 KYC，回填 payerId
+   ├─ this.calculate(order)       → 算手续费
+   └─ KycRoute.createOrder==1 → 调 Panda 建单，回写 pandaSeqNo / paymentLink
+2. loadService(order)                                  OrderController:1123
+   └─ OrderFactory 按 countryCode（缺省用 currencyCode）取国家 BaseOrderService
+3. orderService.commitTxn(order)                       ← ★ Feign 出本仓库
+4. orderServiceHandler.commitOrderResultHandler(order) OrderServiceHandler:42
+   ├─ 重新查库拿最新（不信任内存里的 order）
+   ├─ 回写 pandaSeqNo / paymentLink
+   └─ asyncPost.pushStbOrderInfoNotify()  异步推送
+```
+
+---
+
+## 3.2 链路二：状态回调
+
+第三方 → 我们 → 商户。订单系统的心脏。
+
+```
+POST /v2/push/status/notify        OrderPushV2Controller:97
+├─ 参数校验（seqNo 或 pandaSeqNo 二选一 + paymentStatus + status）
+├─ Redis 占位防重  REDIS_SETTLE_ORDER_KEY + seqNo，200s
+├─ 按 pandaSeqNo / seqNo 分别查单   findPandaOrder / findOrder
+├─ ★ 幂等闸门：已是 RECHARGE_SUCCESS / FAILED / WAIT 直接拒绝
+├─ 更新 paymentStatus + status + orderIdIn3rdSys + note
+└─ 同步通知商户
+```
+
+配套：
+
+- `POST /v2/push/updateOrder`（:66）—— 只更 3rd ID 和备注，Panda 同步用
+- `POST /v2/push/settlement/notify`（:55）—— 结算通知，**被链路三复用**
+
+> 🔑 **两层防重**：Redis key 防并发 + 状态闸门防重放。看懂这两层，就懂了金融系统为什么到处是这种写法。
+
+---
+
+## 3.3 链路三：对账清分
+
+★★★ 含金量最高。横跨 HTTP + DB + MQ + 回调，看完这条对项目就有体感了。
+
+```
+① POST /payment/poli/verify        PaymentController:41
+   导入银行流水 → bankPaymentVerifyByAccountRecord()   PaymentServiceImpl:90
+   银行流水与本地订单匹配，返回待确认"白名单"
+
+② POST /payment/poli/checkClear    PaymentController:59
+   人工确认后的白名单进来 → doClear()                  PaymentServiceImpl:218
+   ├─ 校验 paymentStatus ∈ {PAYMENT_RECEIVED, PAYMENT_UNVERIFIED}
+   ├─ 校验 status == TRANSACTION_ING
+   ├─ 改 paymentStatus = PAYMENT_SUCCESS，落库
+   ├─ Redis CLEAR_ORDER_KEY 防重（300s）
+   └─ ★ 发 MQ  sendClearMsg(ORDER_CLEARING_TOPIC)      PaymentServiceImpl:333
+
+③ RocketMQ 消费                     RocketReceiver:31
+   doClearQueue.onMessage → doClear(msg)               RocketReceiver:40
+   ├─ Redis 分布式锁 "clearing_order_" + seqNo
+   └─ 直接调 orderPushV2Controller.orderSettlementNotify()   ← ★ 见坑清单
+
+④ 结算通知商户                      OrderPushV2Controller:55
+```
+
+---
+
+## 3.4 链路四：到账通知
+
+Nextpls 对外充值。
+
+```
+POST /push/success/order/notify    OrderPushController:113
+├─ Redis REDIS_KCB_CLEAR_ORDER_KEY 防重（200s，finally 里 del）
+├─ ★ 合规校验  requestComplianceCheck()               OrderPushController:178
+│   gatewayClient.queryComplianceResult() → pass 才放行
+│   回写 OrderRiskInfo.status = 1
+├─ packageNextPlsOrder(order, users, payee)   组装对外报文
+├─ IME 商户特殊分支 → asyncPost.nextplsTransfer() 先推全球分发
+├─ gatewayClient.successOrderNotify(merchantNo, nextplsOrder)
+└─ 成功且 PAYMENT_SUCCESS → asyncPost.nextPlsTopUpTransaction() + setTxnStatus()
+```
+
+---
+
+## 3.5 链路五：取消与超时
+
+```
+POST /client/cancel         OrderController:423
+├─ applyOrderService.cancel(param)           本地主表
+├─ orderService.cancel(param)                Feign → 国家服务改分表
+├─ orderService.updatePartnerOrderStatus()   Feign → 通知合作方取消
+└─ couponClient.releaseCouponForOrderBySeq() 退券
+
+POST /client/refund         OrderController:457    纯转发，全交给国家服务
+
+GET  /client/syncOrderTimeout   OrderController:1111   ← 定时任务入口
+└─ applyOrderService.expireAndFailedOrders()           ApplyOrderServiceImpl:2134
+   按 commonOrderConfigs.getOrderTimeoutDay() 扫超时单
+   type ∈ {2,5}（银行转账）走 bankTransferTimeoutTime
+   → TRANSACTION_CLOSED / TRANSACTION_FAILED
+```
+
+---
+
+## 3.6 链路六：异步推送
+
+`async/AsyncPost.java` —— 所有链路的异步尾巴都在这。
+
+| 方法 | 行 | 用途 |
+|---|---|---|
+| `pushStbOrderInfoNotify` | :414 | commit 成功后推送订单信息 |
+| `nextPlsTopUpTransaction` | :231 | 到账后充值交易 |
+| `nextplsTransfer` | :251 | IME 渠道全球分发 |
+| `asyncNoticeMerchantOrderStatus` | :357 | 通知商户订单状态 |
+| `pushStbSupplement` | :382 | 补件推送 |
+| `updateThirdPaymentByPoli` | :104 | POLI 支付回写 |
+| `insertOrderSupplement` / `removeOrderSupplementByUserId` | :164 / :203 | 补件增删 |
+| `updateUserTags` | :187 | 用户标签 |
+
+
+---
+
+# 四、状态机
+
+`ApplyOrder` 有**两个状态字段**，这是理解一切的钥匙。枚举都在 `tp-entity`，不在本仓库。
+
+## 4.1 status 交易主状态
+
+`ApplyOrderStatus`
+
+```
+TRANSACTION_ING ──┬─→ TRANSACTION_SUCCESS
+                  ├─→ TRANSACTION_FAILED
+                  ├─→ TRANSACTION_CLOSED   (超时关单)
+                  └─→ INVALID
+```
+
+另有 `PAYMENT_ING` / `PAYMENT_SUCCESS` / `PAYMENT_FAILED` 三个值（与 paymentStatus 同名，注意别混）。
+
+## 4.2 paymentStatus 支付子状态
+
+`ApplyOrderPaymentStatus`，带一个 `result` 字段对外归三档：**Void / Pending / Paid**。
+
+| 阶段 | 状态值 | 中文 | result |
+|---|---|---|---|
+| 初始 | `INIT` | — | Void |
+| | `WAIT_PAYMENT` | 等待支付 | Pending |
+| 支付中 | `PAYMENT_ING` | 支付处理中 | Pending |
+| | `PAYMENT_AUTHORISED` | 支付已授权 | Pending |
+| | `BANK_PROCESSING` | 银行处理中 | Pending |
+| | `BANK_ACCEPTED` | 银行已受理 | Pending |
+| 待核验 | `PAYMENT_UNVERIFIED` | 未核验 | — |
+| | `PAYMENT_TO_BE_VERIFIED` | 待核验 | — |
+| | `PAYMENT_FLAGGED` | 已标记 | — |
+| 收款 | `PAYMENT_RECEIVED` | **支付成功** | Paid |
+| | `PAYMENT_SUCCESS` | **等待清分** | Paid |
+| 汇出 | `PAYMENT_REMITTED` | 已汇出 | Paid |
+| | `BANK_REMITTED` | 银行已汇出 | Paid |
+| | `WAIT_RECEIVE` | 等待收款 | Pending |
+| 充值 | `RECHARGE_WAIT` / `RECHARGE_SUCCESS` / `RECHARGE_FAILED` | 充值中 / 成功 / 失败 | — |
+| 终止 | `PAYMENT_FAILED` | 支付失败 | Void |
+| | `PAYMENT_TIMEOUT` | 支付超时 | Void |
+| | `PAYMENT_CANCELED` | 已取消 | Void |
+| | `BANK_REMIT_FAILED` | 银行汇款失败 | Void |
+
+## 4.3 命名坑
+
+> **`PAYMENT_RECEIVED` 中文是「支付成功」，`PAYMENT_SUCCESS` 中文是「等待清分」—— 字面意思和实际含义是反的。**
+>
+> 链路三的 `doClear` 正是把 `PAYMENT_RECEIVED` → `PAYMENT_SUCCESS`（"收到钱" → "待清分"）。
+> 不知道这点会读错所有清分相关代码。
+
+## 4.4 怎么把枚举捞出来
+
+`tp-entity` 只有 jar 没有源码时，用 javap：
+
+```bash
+cd /tmp && mkdir -p tpent && cd tpent
+unzip -o -q ~/.m2/repository/com/tp/tp-entity/1.0-SNAPSHOT/tp-entity-1.0-SNAPSHOT.jar "com/tp/entity/order/enums/*"
+javap -p -c com/tp/entity/order/enums/ApplyOrderPaymentStatus.class
+javap -p -c com/tp/entity/order/enums/ApplyOrderStatus.class
+```
+
+更省事：IDEA 关联 `tp-entity` 的 sources jar，或直接把 tp-entity 仓库拉下来。
+
+同目录下还有：`ApplyOrderExchangeStatus`、`ApplyOrderReceiveStatus`、`ApplyOrderRefundStatus`、`ApplyOrderRefundNumberStatus`、`ApplyOrderSource`、`ApplyOrderTraceEnum` / `V2`、`ApplyOrderSupplemenntEnums`（注意这个**类名拼写就是错的**，源码如此）。
+
+
+---
+
+# 五、坑与反模式清单
+
+新人常犯的错是把代码当圣经。看到"味道怪"的地方，先假设**是有历史原因的**，记下来，攒够几个再一起问 leader —— 比逐个追问更高效，也更显专业。
+
+## 5.1 命名 / 日志不可信
 
 - **`OrderServiceHandler.java:63`**：`commitOrderResultHandler` 是所有国家共用的，日志却写着 `"sg创建订单返回结果"` —— 复制粘贴残留。**日志文案不可信，以代码逻辑为准。**
 
-- **`OrderFactory.java:60-62`**：`getFactory()` 每次 `new OrderFactory()`，而这个 new 出来的实例 `@Resource` 字段全是 null。之所以能跑，是因为 `orderServiceMap` 是 `static`，由 Spring 托管的那个真实例在 `@PostConstruct` 里填好了。**这是个能工作但很脆的写法** —— 看到这种地方要在心里标记，别照抄。
+- **`ApplyOrderPaymentStatus`**：`PAYMENT_RECEIVED`（支付成功）和 `PAYMENT_SUCCESS`（等待清分）语义与字面相反，详见 [[#4.3 命名坑]]。
 
-看到"味道怪"的地方，先假设**是有历史原因的**，记下来，攒够几个再一起问 leader —— 比逐个追问更高效，也更显专业。
+## 5.2 架构反模式
 
-# 源码
+- **`RocketReceiver:59`**：MQ 消费者**直接调 Controller 的方法**（`orderPushV2Controller.orderSettlementNotify`）。不是标准写法，但必须知道 —— 否则看到 `orderSettlementNotify` 会以为它只有 HTTP 一个来源。
+
+- **`OrderFactory.java:60-62`**：`getFactory()` 每次 `new OrderFactory()`，new 出来的实例 `@Resource` 字段全是 null。能跑是因为 `orderServiceMap` 是 `static`，由 Spring 托管的真实例在 `@PostConstruct` 里填好了。**能工作但很脆**，别照抄。
+
+- **按商户号写死的分支**：`OrderPushController` 里的 `MerChantEnums.IME` 特殊处理。这类硬编码不止一处，是业务债务的集中地。
+
+## 5.3 潜在缺陷（值得跟 leader 提）
+
+- **`OrderController.java:443` cancel 吞异常**：整个 Feign 调用包在 `try-catch` 里且只 log 不抛。本地取消成功但合作方没取消掉时会产生**状态不一致**，且无补偿。这是个真实的对账缺口。
+
+- **`PaymentServiceImpl:218` 附近大段注释代码**：注释掉的 Nova 建单逻辑和 RabbitMQ 发送，是历史演进的化石。别删，先问清楚。
+
+- **`doClear` 里的 `Thread.sleep(10)`**：循环内限流，量大时会成为瓶颈。
+
+
+---
+
+# 六、学习进度与待确认
+
+## 6.1 进度
+
+- [x] 骨架：技术栈 / 端口 / context-path / 内部依赖
+- [x] `/client/create` 入口
+- [x] `/client/commit` 入口
+- [x] 架构本质：编排层 + Feign 路由到 13 个国家服务
+- [x] 外部边界：12 个 Feign client
+- [x] `createBefore` / `createExecute` 逐行（见第七章）
+- [x] `commitOrderBefore` 逐行（见第七章）
+- [x] 汇率与金额计算（见第七章）
+- [x] 两个状态枚举全量
+- [x] 6 条主链路调用栈
+- [ ] **链路三（清分）完整走一遍** ← 下一个，性价比最高
+- [ ] 链路二（状态回调）
+- [ ] 链路四（到账通知 + 合规卡点）
+- [ ] `createPayment` + `isPandaOrder`（认 Panda 暗线）
+- [ ] 链路五（取消 / 退款 / 超时）
+- [ ] 读表：`ApplyOrderMapper.xml` + `ApplyOrderDo` 字段含义
+- [ ] 三个 DTO：`CreateOrderParameters` / `Order` / `ApplyOrder`
+- [ ] `ApplyOrderController` 40+ 运营端点（低优先，量大）
+- [ ] 本地 debug 跑通一次 create → commit
+
+## 6.2 建议阅读顺序
+
+| 顺序 | 内容 | 为什么 |
+|---|---|---|
+| 1 | [[#四、状态机]] | 没有状态机，读什么都是雾 |
+| 2 | [[#3.3 链路三：对账清分]] | 唯一横跨 HTTP+DB+MQ+回调，性价比最高 |
+| 3 | [[#3.2 链路二：状态回调]] | 理解幂等和防重的标准写法 |
+| 4 | [[#3.4 链路四：到账通知]] | 理解对外报文和合规卡点 |
+| 5 | [[#3.1 链路一：下单主干]] | 认出 Panda 暗线 |
+| 6 | [[#3.5 链路五：取消与超时]] | 收尾逻辑，相对独立 |
+
+## 6.3 要问 leader 的问题
+
+- [ ] **下单的确切调用顺序**：`create → pay/types → createPayment → commit` 是从命名和逻辑推断的，没有前端代码佐证。抓一次真实请求日志验证，或直接问。**这是最值得问的一个。**
+- [ ] `cancel` 吞掉 Feign 异常导致的状态不一致，现在靠什么补偿？有没有对账任务？
+- [ ] `PaymentServiceImpl` 里注释掉的 Nova 建单 / RabbitMQ 逻辑，是废弃还是待恢复？
+- [ ] Panda 是什么定位？`KycRoute.createOrder` 这个开关谁在维护？
+- [ ] 定时任务由哪个调度中心触发？调度配置在哪看？
+
+---
+
+# 七、源码深度解析
+
 ## ApplyOrderServiceImpl.createBefore 方法解析
 
 **业务术语表**：
@@ -1018,6 +1362,3 @@ private CommonConfigs commonConfigs;  // 通用配置，包含 Panda 系统 URL
 1. 订单已存在 → 返回已有订单信息（幂等性保证）
 2. KYC 查询失败 → 不设置 PayerId，继续流程（非阻塞）
 3. Panda 订单创建失败 → 中断流程，返回错误（阻塞，因为路由配置要求必须创建）
-4. 所有异常 → 返回系统错误（统一异常处理）
-
-需要深入解释哪些方法？（输入方法名或序号，或"无"结束）
