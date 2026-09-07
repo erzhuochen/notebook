@@ -245,6 +245,95 @@ isPandaOrder(param)                OrderController:1155
    └─ asyncPost.pushStbOrderInfoNotify()  异步推送
 ```
 
+### 配置表：CountryPayTypeMap
+
+表 `country_pay_type_map`，实体 `pojo/model/CountryPayTypeMap.java`。
+**一行 = 一个国家的一种支付方式**。在下单主干里出场两次，角色完全不同。
+
+```
+/create        ❌ 完全不用
+/pay/types     ✅ 出场①：查列表给前端选
+/createPayment ❌ 不用（转发给国家服务或 Panda）
+/commit        ✅ 出场②：按选中的支付方式算额外手续费
+```
+
+#### 表的三层内容
+
+主键是 **`countryCode` + `payType` + `subType`** 三元组（`selectByCountryCodeAndSubType` 按它查）。
+
+| 层 | 字段 | 作用 |
+|---|---|---|
+| ① 身份 | `countryCode` / `payType` / `subType` / `status` | 定位一种支付方式。`payType`：1 在线转账 · 2 银行支付 · 3 线下支付；`subType` 是子类型 |
+| ② 展示 | `payName` / `payContent` / `logoImg` / `cornerImg` / `cornerContent` / `sort` / `hasCornerMark` | 前端渲染支付方式卡片：名称、描述、图标、角标、排序 |
+| ③ 计费 | `feeType` / `extraFeeRate` / `newUserFeeRate` / `oldUserFeeRate` / `newUserDiscountFeeRate` / `oldUserDiscountFeeRate` / `discountStartTime` / `discountEndTime` / `lockRate` | 额外手续费规则、新老用户差异费率、限时优惠、是否支持锁汇 |
+
+② 的**多语言**是这张表最占篇幅的部分：`payName` / `payContent` / `cornerContent` 各有 7 个语言变体（简 / 繁 / 英 / 泰 / 印尼 / 菲 / 印地）。实体类 700 多行里绝大部分是这些字段的 getter/setter。
+
+#### 出场①：`/client/pay/types` 渲染可选支付方式
+
+`OrderController:734` → `ApplyOrderServiceImpl.getPayTypeByOrder()` `:3376`
+
+```java
+// 1. 欧元区归一：AUT/DEU/FRA… 都映射成 Europe
+if (CurrencyEnum.EUR.equals(country.getCurrency())) market = CountryEnum.Europe.getMsg();
+
+// 2. countryCode + 可选 payType/subType 过滤，只要 status=1
+example.and().andIn("countryCode", countrys);
+example.orderBy("status").desc().orderBy("sort").desc().orderBy("payType").asc();
+List<CountryPayTypeMap> list = countryPayTypeMapMapper.selectByExample(example);
+
+// 3. ★ 按国家取策略 Bean，做各国特殊过滤
+PayTypeQuery payTypeQuery = applicationContext.getBean(routerMarket, PayTypeQuery.class);
+return payTypeQuery.exec(list, order);
+```
+
+> 🔑 **第二套路由机制**：和 `OrderFactory` 平行，但实现方式不同 —— 用 **Bean 名 = 国家码**，靠 `applicationContext.getBean(国家码, PayTypeQuery.class)` 取。
+>
+> ```
+> service/payType/
+> ├─ PayTypeQuery.java      接口
+> ├─ @Service("AUS") AUSPayTypeQuery
+> ├─ @Service("CAN") CANPayTypeQuery
+> ├─ @Service("CHN") CHNPayTypeQuery
+> └─ @Service("USA") USAPayTypeQuery
+> ```
+>
+> `catch (NoSuchBeanDefinitionException)` 走默认逻辑 —— **只有这 4 个国家有特殊规则，其余 9 个走默认**。
+> 例：`CHNPayTypeQuery:60` 汇出用户若 `bankType == 1`，把 `payType == 1`（在线转账）从列表剔掉。
+
+最后 `international()` `:3430` 按 `systemLanguage`（1简 2繁 3英 4泰 5印尼…）把 7 套语言字段中对应的一套**覆盖回** `payName` / `payContent` / `cornerContent`，再拷成 `CountryPayTypeMapForShow` 返给前端。
+
+配套端点 `/client/pay/type`（`:751`）拿同一批结果取 `get(0)`，用于查单个支付方式。
+
+#### 出场②：`/client/commit` 算额外手续费
+
+`OrderServiceWrapper.commitOrderBefore:110` → `calculate(order)` `:198`
+
+```java
+CountryPayTypeMap m = countryPayTypeMapMapper.selectByCountryCodeAndSubType(
+        order.getCountryCode(), order.getType(), order.getFundingType());   // ★ 三元组反查
+
+if (m != null && isNotEmpty(m.getExtraFeeRate()) && !"0".equals(m.getExtraFeeRate())) {
+    BigDecimal fee = new BigDecimal(m.getExtraFeeRate());
+    order.setPayTotalAmount(payTotal.add(fee));   // 加到用户要付的总额
+    order.setFeeAmount(原feeAmount.add(fee));      // 累加到手续费
+}
+```
+
+**关键连接点**：`order.getType()` = 表里的 `payType`，`order.getFundingType()` = 表里的 `subType`。
+用户在前端从出场①的列表里选了哪个，这两个字段就带着回来，commit 时用它们反查同一行配置，取出 `extraFeeRate`。
+
+这也解释了 Panda 建单参数为什么是 `pandaOrder.put("type", order.getFundingType())`（`OrderServiceWrapper:123`）—— Panda 侧的 type 对应我们的 subType。
+
+#### ⚠️ 两套费率、两张表、两个阶段
+
+| 阶段 | 表 | 入口 |
+|---|---|---|
+| `create` | `CountryPaymentMethod` | `/client/extraFeeInfo` `OrderController:1010` |
+| `commit` | `country_pay_type_map` | `OrderServiceWrapper.calculate:198` |
+
+**`create` 阶段根本不碰 `country_pay_type_map`**。额外手续费是 commit 才加的。这是这块最容易搞混的地方。
+
 ---
 
 ## 3.2 链路二：状态回调
@@ -447,6 +536,12 @@ javap -p -c com/tp/entity/order/enums/ApplyOrderStatus.class
 
 - **`doClear` 里的 `Thread.sleep(10)`**：循环内限流，量大时会成为瓶颈。
 
+- **`OrderServiceWrapper.calculateV2` 是死代码**：`:216` 定义了一个远比 `calculate` 完整的费率实现 —— `feeType=1` 百分比 / `=2` 固定金额 / `=3` 阶梯（查 `CountryPayTypeFeeLadder` 表）、新老用户区分（`selectTransactionIngAndSuccess`）、各自的优惠费率。**全仓库无任何调用点**（只有 `USAPayTypeQuery:53` 一行被注释掉的相关调用）。
+  后果：`country_pay_type_map` 表里的 `feeType`、`newUserFeeRate`、`oldUserFeeRate`、`discountStartTime/EndTime` 等字段，在当前生效的下单链路里**全都没被用上**，只有 `extraFeeRate` 一个字段真正生效。
+  ⚠️ 此结论只覆盖 tp-order 仓库 —— 这些字段可能是国家服务那边（commitTxn 之后）在用，或是未上线功能。**待确认。**
+
+- **`CountryPayTypeMapMapper.selectByType` 不带国家码**：`ApplyOrderServiceImpl.lastPayType:2105` 用它反查用户上次成功订单的支付方式，SQL 只按 `pay_type + sub_type` 查、`limit 1`。不同国家可能有相同的 `(payType, subType)` 组合，**理论上会查到别国的配置**拿去展示 logo 和名称。潜在显示错乱，不影响资金。
+
 
 ---
 
@@ -464,6 +559,7 @@ javap -p -c com/tp/entity/order/enums/ApplyOrderStatus.class
 - [x] 汇率与金额计算（见第七章）
 - [x] 两个状态枚举全量
 - [x] 6 条主链路调用栈
+- [x] `CountryPayTypeMap` 配置表 + payType 策略路由（第二套国家路由）
 - [ ] **链路三（清分）完整走一遍** ← 下一个，性价比最高
 - [ ] 链路二（状态回调）
 - [ ] 链路四（到账通知 + 合规卡点）
@@ -492,6 +588,9 @@ javap -p -c com/tp/entity/order/enums/ApplyOrderStatus.class
 - [ ] `PaymentServiceImpl` 里注释掉的 Nova 建单 / RabbitMQ 逻辑，是废弃还是待恢复？
 - [ ] Panda 是什么定位？`KycRoute.createOrder` 这个开关谁在维护？
 - [ ] 定时任务由哪个调度中心触发？调度配置在哪看？
+- [ ] `calculateV2` 为什么没启用？`country_pay_type_map` 的 `feeType` / 新老用户费率 / 优惠时间段这些字段，是国家服务在用，还是未上线功能？（见 [[#5.3 潜在缺陷（值得跟 leader 提）]]）
+- [ ] `create` 和 `commit` 用两套不同的费率表（`CountryPaymentMethod` vs `country_pay_type_map`），是历史遗留还是有意设计？两者会不会重复收费？
+
 
 ---
 
