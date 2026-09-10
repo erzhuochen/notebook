@@ -589,52 +589,682 @@ javap -p -c com/tp/entity/order/enums/ApplyOrderStatus.class
 
 ---
 
-# 六、学习进度与待确认
+# 六、tp-order 六条业务链路协同工作示例
 
-## 6.1 进度
+## 业务场景：一笔从澳洲到菲律宾的跨境汇款全生命周期
 
-- [x] 骨架：技术栈 / 端口 / context-path / 内部依赖
-- [x] `/client/create` 入口
-- [x] `/client/commit` 入口
-- [x] 架构本质：编排层 + Feign 路由到 13 个国家服务
-- [x] 外部边界：12 个 Feign client
-- [x] `createBefore` / `createExecute` 逐行（见第七章）
-- [x] `commitOrderBefore` 逐行（见第七章）
-- [x] 汇率与金额计算（见第七章）
-- [x] 两个状态枚举全量
-- [x] 6 条主链路调用栈
-- [x] `CountryPayTypeMap` 配置表 + payType 策略路由（第二套国家路由）
-- [ ] **链路三（清分）完整走一遍** ← 下一个，性价比最高
-- [ ] 链路二（状态回调）
-- [ ] 链路四（到账通知 + 合规卡点）
-- [ ] `createPayment` + `isPandaOrder`（认 Panda 暗线）
-- [ ] 链路五（取消 / 退款 / 超时）
-- [ ] 读表：`ApplyOrderMapper.xml` + `ApplyOrderDo` 字段含义
-- [ ] 三个 DTO：`CreateOrderParameters` / `Order` / `ApplyOrder`
-- [ ] `ApplyOrderController` 40+ 运营端点（低优先，量大）
-- [ ] 本地 debug 跑通一次 create → commit
+让我用一个完整的真实场景来展示这六条链路如何配合工作。
 
-## 6.2 建议阅读顺序
+---
 
-| 顺序 | 内容 | 为什么 |
-|---|---|---|
-| 1 | [[#四、状态机]] | 没有状态机，读什么都是雾 |
-| 2 | [[#3.3 链路三：对账清分]] | 唯一横跨 HTTP+DB+MQ+回调，性价比最高 |
-| 3 | [[#3.2 链路二：状态回调]] | 理解幂等和防重的标准写法 |
-| 4 | [[#3.4 链路四：到账通知]] | 理解对外报文和合规卡点 |
-| 5 | [[#3.1 链路一：下单主干]] | 认出 Panda 暗线 |
-| 6 | [[#3.5 链路五：取消与超时]] | 收尾逻辑，相对独立 |
+## 用户故事
 
-## 6.3 要问 leader 的问题
+**李明**是一位在澳洲工作的菲律宾人,想通过 Starry 商户的 App 给菲律宾家人汇款。
 
-- [ ] **下单的确切调用顺序**：`create → pay/types → createPayment → commit` 是从命名和逻辑推断的，没有前端代码佐证。抓一次真实请求日志验证，或直接问。**这是最值得问的一个。**
-- [ ] `cancel` 吞掉 Feign 异常导致的状态不一致，现在靠什么补偿？有没有对账任务？
-- [ ] `PaymentServiceImpl` 里注释掉的 Nova 建单 / RabbitMQ 逻辑，是废弃还是待恢复？
-- [ ] Panda 是什么定位？`KycRoute.createOrder` 这个开关谁在维护？
-- [ ] 定时任务由哪个调度中心触发？调度配置在哪看？
-- [ ] `calculateV2` 为什么没启用？`country_pay_type_map` 的 `feeType` / 新老用户费率 / 优惠时间段这些字段，是国家服务在用，还是未上线功能？（见 [[#5.3 潜在缺陷（值得跟 leader 提）]]）
-- [ ] `create` 和 `commit` 用两套不同的费率表（`CountryPaymentMethod` vs `country_pay_type_map`），是历史遗留还是有意设计？两者会不会重复收费？
+**初始状态**：
+- 用户：李明 (userId: 123456, merchantNo: "STARRY")
+- 汇款人账户：已完成 KYC 认证 (kycStatus: PASS)
+- 收款人：Maria (payeeId: 789, 菲律宾银行账户)
+- 汇款金额：5650 PHP (菲律宾比索)
+- 支付方式：Poli 银行转账
 
+---
+
+## 🔄 链路一：下单主干 (正常流程)
+
+### 步骤 1: 预创建订单 `POST /client/create`
+
+**请求**：
+```json
+{
+  "userId": 123456,
+  "partnerSeqNo": "STARRY20260909001",
+  "targetCurrency": "PHP",
+  "targetAmount": "5650",
+  "sourceCurrency": "AUD",
+  "payeeId": 789,
+  "countryCode": "AU"
+}
+```
+
+**系统处理**：
+```java
+// OrderController.java:137
+applyOrderService.createOrder(parameters)
+  ├─ createBefore()  // 前置验证
+  │   ├─ 查询商户配置 → STARRY 商户存在 ✓
+  │   ├─ 查询汇款人 KYC → kycStatus = PASS ✓
+  │   ├─ 查询收款人信息 → Maria, 菲律宾银行账户 ✓
+  │   └─ 同名校验 → STARRY 商户豁免 (跳过)
+  │
+  └─ createExecute()  // 执行创建
+      ├─ 判断币种：AUD ≠ PHP → 跨币种支付
+      ├─ 查询汇率：queryTopUpRate("AU", "AUD", "PHP")
+      │   └─ 返回：1 AUD = 56.5 PHP
+      ├─ 计算充值金额：5650 / 56.5 = 100 AUD
+      ├─ 生成订单号：seqNo = "E202609091234567890"
+      └─ 存入 Redis：key = "recharge-order-123456"
+```
+
+**返回**：
+```json
+{
+  "code": 0,
+  "model": {
+    "seqNo": "E202609091234567890",
+    "partnerSeqNo": "STARRY20260909001",
+    "userId": 123456,
+    "targetAmount": { "currency": "PHP", "amount": "5650" },
+    "sourceAmount": { "currency": "AUD", "amount": "100" },
+    "businessRate": "56.5",
+    "status": "TRANSACTION_ING",
+    "paymentStatus": "INIT"
+  }
+}
+```
+
+---
+
+### 步骤 2: 查询支付方式 `POST /client/pay/types`
+
+**请求**：
+```json
+{
+  "countryCode": "AU",
+  "seqNo": "E202609091234567890"
+}
+```
+
+**系统处理**：
+```java
+// OrderController.java:734
+applyOrderService.getPayTypeByOrder()
+  ├─ 查询配置表 country_pay_type_map
+  │   WHERE countryCode = 'AU' AND status = 1
+  │   ORDER BY sort DESC
+  │
+  └─ 调用澳洲策略 AUSPayTypeQuery.exec()
+      └─ 返回可用支付方式列表
+```
+
+**返回** (前端展示的支付方式卡片)：
+```json
+[
+  {
+    "payType": 2,
+    "subType": 1,
+    "payName": "POLi Payment",
+    "payContent": "Direct bank transfer, arrives in 5 minutes",
+    "logoImg": "https://cdn.../poli.png",
+    "extraFeeRate": "0"  // 无额外手续费
+  },
+  {
+    "payType": 1,
+    "subType": 2,
+    "payName": "Credit Card",
+    "payContent": "Instant payment",
+    "extraFeeRate": "2.5"  // 2.5% 手续费
+  }
+]
+```
+
+用户选择：**POLi Payment**
+
+---
+
+### 步骤 3: 创建支付 `POST /client/createPayment`
+
+**请求**：
+```json
+{
+  "seqNo": "E202609091234567890",
+  "type": 2,  // payType: 银行支付
+  "fundingType": 1  // subType: POLi
+}
+```
+
+**系统处理**：
+```java
+// OrderController.java:682
+setCountryCode(param)  // 补充国家码
+└─ isPandaOrder(param)  // 检查是否 Panda 单
+    ├─ 查询 KycRoute → createOrder = 0 (不是 Panda 单)
+    └─ loadService(param).createPayment()  // Feign 调用
+        └─ AUOrderService.createPayment()  // 转发到澳洲服务
+            └─ HTTP POST service-tp-auorder/auorder/createPayment
+```
+
+**澳洲服务返回** (POLi 支付链接)：
+```json
+{
+  "code": 0,
+  "model": {
+    "paymentLink": "https://poli.com.au/pay?token=abc123...",
+    "merchantReference": "E202609091234567890"
+  }
+}
+```
+
+用户点击链接 → 跳转到 POLi → 选择银行 → 完成转账
+
+---
+
+### 步骤 4: 提交订单 `POST /client/commit`
+
+**请求**：
+```json
+{
+  "seqNo": "E202609091234567890",
+  "partnerSeqNo": "STARRY20260909001",
+  "type": 2,
+  "fundingType": 1
+}
+```
+
+**系统处理**：
+```java
+// OrderController.java:150
+1. orderServiceWrapper.commitOrderBefore(order)
+   ├─ 查询订单是否已存在 → partnerSeqNo 幂等检查 ✓
+   ├─ 查询 KYC 信息 → payerId = 456
+   ├─ calculate(order)  // 计算手续费
+   │   └─ 查询 country_pay_type_map
+   │       WHERE countryCode='AU' AND payType=2 AND subType=1
+   │       → extraFeeRate = "0" (POLi 无额外费用)
+   └─ 检查 KycRoute → createOrder = 0 (跳过 Panda)
+
+2. loadService(order)  // 按国家路由
+   └─ OrderFactory.getService("AU") 
+       → 返回 AUOrderService (Feign 接口)
+
+3. orderService.commitTxn(order)  // 核心：转发到澳洲服务
+   └─ HTTP POST service-tp-auorder/auorder/commitTxn
+       ├─ 澳洲服务调用 Novatti API 创建支付单
+       ├─ 返回 Novatti transactionId: "NOVATTI-2026-09-09-001"
+       └─ 落库到澳洲服务的 aus_txn 表
+
+4. orderServiceHandler.commitOrderResultHandler(order)
+   ├─ 重新查询订单最新状态
+   ├─ 回写 pandaSeqNo / paymentLink (如果有)
+   └─ asyncPost.pushStbOrderInfoNotify()  // 异步推送商户
+```
+
+**此时订单状态**：
+```
+apply_order 表 (tp-order 服务):
+  seqNo: E202609091234567890
+  status: TRANSACTION_ING
+  paymentStatus: WAIT_PAYMENT  ← 等待用户支付
+
+aus_txn 表 (tp-auorder 服务):
+  seqNo: E202609091234567890
+  transactionId: NOVATTI-2026-09-09-001
+  status: PENDING
+```
+
+---
+
+## ⚠️ 异常分支：链路三 + 链路二 (Poli 风控拦截场景)
+
+### 场景：POLi 风控误判
+
+用户完成了银行转账，钱已经打到平台账户，但 POLi 风控系统认为这笔交易可疑（首次大额、IP 异常等），将订单标记为"待审核"。
+
+**系统自动回调失败**：
+```
+POLi → tp-auorder → tp-order
+× 风控拦截，未触发成功回调
+```
+
+**订单卡住状态**：
+```
+paymentStatus: PAYMENT_RECEIVED  ← 支付已收到
+status: TRANSACTION_ING         ← 但订单未完成
+```
+
+---
+
+### 🔍 链路三：对账清分 (人工核对)
+
+#### 步骤 1: 运营人员导入银行对账单 `POST /payment/poli/verify`
+
+**银行 CSV 文件内容**：
+```csv
+Date,Account,TransactionRef,PayerName,Currency,CreditAmount
+2026-09-09,AU-12345678,POLI-REF-20260909-001,Ming Li,AUD,100.00
+```
+
+**请求**：
+```json
+[
+  {
+    "date": "2026-09-09",
+    "accountNumber": "AU-12345678",
+    "poliTransactionRefNo": "POLI-REF-20260909-001",
+    "payerName": "Ming Li",
+    "currency": "AUD",
+    "creditAmount": "100.00",
+    "transactionId": "NOVATTI-2026-09-09-001"
+  }
+]
+```
+
+**系统处理**：
+```java
+// PaymentServiceImpl.java:90
+bankPaymentVerifyByAccountRecord(bankPayVerifyDTOS)
+  ├─ 提取 transactionId 列表: ["NOVATTI-2026-09-09-001"]
+  │
+  ├─ 查询 third_payment_order 表
+  │   WHERE status IN ('PAY_SUCCESS', 'UNKNOWN')
+  │   AND transactionId IN ('NOVATTI-2026-09-09-001')
+  │   → 找到 1 条支付单
+  │
+  ├─ 提取订单号: ["E202609091234567890"]
+  │
+  ├─ 查询白名单订单 (SQL 见笔记 3.3)
+  │   WHERE (paymentStatus = 'PAYMENT_RECEIVED' 
+  │          OR paymentStatus = 'PAYMENT_UNVERIFIED')
+  │   AND status != 'TRANSACTION_SUCCESS'
+  │   AND seqNo IN ('E202609091234567890')
+  │   → 找到李明的订单 ✓
+  │
+  └─ 逐个匹配验证
+      ├─ 币种匹配：AUD = AUD ✓
+      ├─ 金额匹配：100.00 = 100.00 ✓
+      └─ 转换为 PoliBankVerifyVO
+```
+
+**返回** (待确认的白名单订单)：
+```json
+[
+  {
+    "seqNo": "E202609091234567890",
+    "userId": 123456,
+    "orderTotalAmount": "100.00",
+    "orderCurrency": "AUD",
+    "orderStatus": "TRANSACTION_ING",
+    "orderPaymentStatus": "PAYMENT_RECEIVED",
+    "payerName": "Ming Li",
+    
+    "poliTransactionRefNo": "POLI-REF-20260909-001",
+    "bankPayerName": "Ming Li",
+    "currency": "AUD",
+    "creditAmount": "100.00",
+    "bankDate": "2026-09-09",
+    
+    "matched": true  // 三项验证全部通过
+  }
+]
+```
+
+运营人员审核：✅ 确认放行
+
+---
+
+#### 步骤 2: 确认清分 `POST /payment/poli/checkClear`
+
+**请求**：
+```json
+[
+  {
+    "applyOrderId": 100234,
+    "seqNo": "E202609091234567890"
+  }
+]
+```
+
+**系统处理**：
+```java
+// PaymentServiceImpl.java:218
+doClear(poliBankVerifyVOS)
+  ├─ 校验订单状态
+  │   paymentStatus ∈ {PAYMENT_RECEIVED, PAYMENT_UNVERIFIED} ✓
+  │   status == TRANSACTION_ING ✓
+  │
+  ├─ 更新订单状态
+  │   UPDATE apply_order
+  │   SET paymentStatus = 'PAYMENT_SUCCESS'  ← 从"已收到"变"等待清分"
+  │   WHERE seqNo = 'E202609091234567890'
+  │
+  ├─ Redis 防重
+  │   key: "poliWhiteClear-E202609091234567890"
+  │   expire: 300s
+  │
+  └─ 发送 RocketMQ 消息
+      topic: ORDER_CLEARING_TOPIC
+      body: { "seqNo": "E202609091234567890" }
+```
+
+---
+
+### 🚀 链路二：状态回调 (MQ 触发)
+
+**MQ 消费者自动处理**：
+```java
+// RocketReceiver.java:31
+@RocketMQMessageListener(topic = "ORDER_CLEARING_TOPIC")
+onMessage(msg)
+  ├─ 解析消息 → seqNo = "E202609091234567890"
+  │
+  ├─ 分布式锁
+  │   key: "clearing_order_E202609091234567890"
+  │
+  └─ 直接调用 Controller 方法 (⚠️ 反模式但必须知道)
+      orderPushV2Controller.orderSettlementNotify({
+        "seqNo": "E202609091234567890",
+        "paymentStatus": "RECHARGE_SUCCESS",  ← 最终状态
+        "status": "TRANSACTION_SUCCESS"
+      })
+```
+
+**结算通知处理**：
+```java
+// OrderPushV2Controller.java:55
+orderSettlementNotify(params)
+  ├─ Redis 占位防重
+  │   key: "tp_order_settle_E202609091234567890"
+  │   expire: 200s
+  │
+  ├─ 查询订单
+  │   SELECT * FROM apply_order
+  │   WHERE seqNo = 'E202609091234567890'
+  │
+  ├─ 幂等闸门检查
+  │   当前 paymentStatus = 'PAYMENT_SUCCESS'
+  │   目标 paymentStatus = 'RECHARGE_SUCCESS' ✓ 允许更新
+  │
+  ├─ 更新订单状态
+  │   UPDATE apply_order
+  │   SET paymentStatus = 'RECHARGE_SUCCESS',  ← 充值成功
+  │       status = 'TRANSACTION_SUCCESS',      ← 交易成功
+  │       note = '人工清分放行'
+  │   WHERE seqNo = 'E202609091234567890'
+  │
+  └─ 同步通知商户
+      POST https://starry-api.com/order/notify
+      {
+        "partnerSeqNo": "STARRY20260909001",
+        "seqNo": "E202609091234567890",
+        "status": "SUCCESS"
+      }
+```
+
+**最终订单状态**：
+```
+apply_order:
+  status: TRANSACTION_SUCCESS  ← 交易成功
+  paymentStatus: RECHARGE_SUCCESS  ← 充值成功
+  note: '人工清分放行'
+```
+
+---
+
+## 📢 链路四：到账通知 (Nextpls 充值)
+
+假设收款人 Maria 使用的是 Nextpls 钱包 (而不是银行账户)，则需要触发链路四：
+
+**触发条件**：
+```
+paymentStatus = PAYMENT_SUCCESS (等待清分)
+→ 系统检测到收款人是 Nextpls 用户
+```
+
+**通知流程**：
+```java
+// OrderPushController.java:113
+successOrderNotify(order)
+  ├─ Redis 防重
+  │   key: "kcb-clear-E202609091234567890"
+  │   expire: 200s (finally 释放)
+  │
+  ├─ 合规校验 ⚠️ 关键卡点
+  │   requestComplianceCheck()
+  │   └─ gatewayClient.queryComplianceResult()
+  │       → 返回: { "pass": true, "riskLevel": "LOW" }
+  │       → 回写 OrderRiskInfo.status = 1
+  │
+  ├─ 组装 Nextpls 报文
+  │   packageNextPlsOrder()
+  │   {
+  │     "merchantNo": "STARRY",
+  │     "seqNo": "E202609091234567890",
+  │     "payerName": "Ming Li",
+  │     "payeeName": "Maria",
+  │     "amount": "5650",
+  │     "currency": "PHP"
+  │   }
+  │
+  ├─ 调用 Nextpls API
+  │   gatewayClient.successOrderNotify(nextplsOrder)
+  │   → Nextpls 给 Maria 钱包充值 5650 PHP
+  │
+  └─ 异步推送交易记录
+      asyncPost.nextPlsTopUpTransaction()
+```
+
+---
+
+## 🛑 链路五：取消与超时 (异常场景)
+
+### 场景 A: 用户主动取消
+
+用户在 POLi 支付页面点击"取消"按钮：
+
+**请求**：
+```json
+POST /client/cancel
+{
+  "seqNo": "E202609091234567890",
+  "userId": 123456
+}
+```
+
+**系统处理**：
+```java
+// OrderController.java:423
+applyOrderService.cancel(param)
+  ├─ 查询订单状态
+  │   paymentStatus = 'WAIT_PAYMENT' ✓ 可取消
+  │   (如果已是 PAYMENT_SUCCESS 则禁止取消)
+  │
+  ├─ 更新本地订单状态
+  │   UPDATE apply_order
+  │   SET status = 'TRANSACTION_CLOSED',
+  │       paymentStatus = 'PAYMENT_CANCELED'
+  │   WHERE seqNo = 'E202609091234567890'
+  │
+  ├─ 通知国家服务
+  │   orderService.cancel(param)  // Feign
+  │   → AUOrderService.cancel()
+  │       → 通知 Novatti 取消支付单
+  │
+  ├─ 通知合作方
+  │   orderService.updatePartnerOrderStatus()
+  │   → 告知 POLi 用户取消
+  │
+  └─ 退还优惠券
+      couponClient.releaseCouponForOrderBySeq()
+```
+
+---
+
+### 场景 B: 订单超时 (定时任务)
+
+POLi 支付单创建后 24 小时内用户未完成支付：
+
+**定时任务触发** (外部调度中心每 30 分钟调用一次)：
+```
+GET /client/syncOrderTimeout
+```
+
+**系统处理**：
+```java
+// OrderController.java:1111
+applyOrderService.expireAndFailedOrders()
+  ├─ 扫描超时订单
+  │   SELECT * FROM apply_order
+  │   WHERE status = 'TRANSACTION_ING'
+  │   AND paymentStatus IN ('WAIT_PAYMENT', 'PAYMENT_ING')
+  │   AND createTime < NOW() - INTERVAL 24 HOUR  ← 配置：orderTimeoutDay
+  │
+  ├─ 批量更新状态
+  │   UPDATE apply_order
+  │   SET status = 'TRANSACTION_CLOSED',
+  │       paymentStatus = 'PAYMENT_TIMEOUT'
+  │   WHERE seqNo IN ('E202609091234567890', ...)
+  │
+  └─ 记录日志
+      logger.info("订单超时关闭: {}", seqNos)
+```
+
+---
+
+## 📤 链路六：异步推送 (贯穿所有流程)
+
+整个订单生命周期中，多个关键节点触发异步推送：
+
+### 推送 1: 订单提交成功
+```java
+// OrderServiceHandler.java:42
+commitOrderResultHandler(order)
+  └─ asyncPost.pushStbOrderInfoNotify()
+      POST https://starry-api.com/order/info
+      {
+        "seqNo": "E202609091234567890",
+        "status": "TRANSACTION_ING",
+        "paymentLink": "https://poli.com.au/pay?token=..."
+      }
+```
+
+### 推送 2: 支付成功
+```java
+// OrderPushV2Controller.java:97
+statusNotify()
+  └─ asyncPost.asyncNoticeMerchantOrderStatus()
+      POST https://starry-api.com/order/status
+      {
+        "seqNo": "E202609091234567890",
+        "paymentStatus": "PAYMENT_SUCCESS"
+      }
+```
+
+### 推送 3: 交易完成
+```java
+// OrderPushV2Controller.java:55
+orderSettlementNotify()
+  └─ 同步通知商户 (见链路二)
+```
+
+---
+
+## 🔗 六条链路的协同关系图
+
+```
+                    用户操作
+                       │
+                       ▼
+    ┌──────────────────────────────────────┐
+    │  链路一：下单主干                      │
+    │  create → pay/types → createPayment   │
+    │         → commit                      │
+    └───────────────┬──────────────────────┘
+                    │
+        ┌───────────┴───────────┐
+        │                       │
+        ▼ (正常)                ▼ (异常)
+  ┌───────────┐          ┌──────────────┐
+  │  链路二：  │          │   链路三：    │
+  │  状态回调  │          │   对账清分    │
+  │  (POLi    │◄─────────┤   (人工核对)  │
+  │   回调)    │  MQ触发  │              │
+  └─────┬─────┘          └──────────────┘
+        │
+        ├──────────────────┐
+        ▼                  ▼
+  ┌───────────┐      ┌──────────────┐
+  │  链路四：  │      │   链路五：    │
+  │  到账通知  │      │   取消/超时   │
+  │ (Nextpls) │      │   (异常处理)  │
+  └───────────┘      └──────────────┘
+        │                  │
+        └────────┬─────────┘
+                 ▼
+        ┌──────────────────┐
+        │   链路六：        │
+        │   异步推送        │
+        │  (贯穿全流程)     │
+        └──────────────────┘
+```
+
+---
+
+## 🎯 关键设计模式总结
+
+### 1. **双层防重**
+```java
+// Redis key 防并发
+if (redisService.lock("settle_order_" + seqNo)) { ... }
+
+// 状态机防重放
+if (order.getPaymentStatus() == RECHARGE_SUCCESS) {
+    return; // 已经完成,拒绝重复处理
+}
+```
+
+### 2. **幂等设计**
+```java
+// partnerSeqNo 是商户侧唯一标识
+ApplyOrderDo existing = dao.selectByPartnerSeqNo(partnerSeqNo);
+if (existing != null) {
+    return ResultRich.newInstance(ORDER_HAS_CREATED, existing);
+}
+```
+
+### 3. **路由机制**
+```java
+// 按国家路由到不同微服务
+BaseOrderService service = OrderFactory.getService(countryCode);
+service.commitTxn(order);  // Feign 转发
+
+// 按商户/国家决定是否走 Panda
+if (kycRoute.getCreateOrder() == 1) {
+    createPandaOrder();
+}
+```
+
+### 4. **异步解耦**
+```java
+// MQ 解耦清分流程
+mqProducerService.send(ORDER_CLEARING_TOPIC, seqNo);
+
+// 异步推送不阻塞主流程
+asyncPost.pushStbOrderInfoNotify();
+```
+
+### 5. **容错机制**
+```java
+// 单个订单失败不影响批量处理
+for (ApplyOrder order : orders) {
+    try {
+        process(order);
+    } catch (Exception e) {
+        logger.error("处理失败: {}", order.getSeqNo(), e);
+        continue;  // 继续处理下一个
+    }
+}
+```
+
+---
+
+这个完整的示例展示了 tp-order 作为**编排层**的核心作用：
+
+1. **不处理具体支付逻辑** → 转发给国家服务 (tp-auorder)
+2. **提供统一的订单管理** → 主表在这里,分表在各国
+3. **处理跨国家通用逻辑** → KYC、汇率、防重、风控
+4. **协调多个子系统** → Panda、Nextpls、Payer、Gateway
+5. **保证数据一致性** → 幂等、状态机、分布式锁
+6. **支持异常补偿** → 人工清分、超时关闭、取消退券
 
 ---
 
