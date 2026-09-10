@@ -5,4 +5,6 @@
 - 2-5 api节点装填
 - 2-6 model节点装填，重点是mcp的装填
 - 2-7 agent节点装填
-- 2-8 
+- 2-8 装配域节点AgentWorkflowNode(1)
+- 2-9 (2) Loop, Parallel, Sequential装填
+- 
