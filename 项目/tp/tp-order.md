@@ -384,7 +384,51 @@ POST /v2/push/status/notify        OrderPushV2Controller:97
 ④ 结算通知商户                      OrderPushV2Controller:55
 ```
 
----
+
+### Poli 白名单的业务含义
+
+**白名单** 在这里实际上是 **"被风控拦截但支付已收到的异常订单列表"**，具体是指：
+
+#### 订单特征（来自 SQL 查询条件）：
+```sql
+where (PAYMENT_STATUS = "PAYMENT_RECEIVED"     -- 支付状态：已收到款项
+       or PAYMENT_STATUS = "PAYMENT_UNVERIFIED")  -- 或支付状态：待验证
+  and STATUS != "TRANSACTION_SUCCESS"           -- 但订单状态不是交易成功
+```
+
+#### 业务场景解释：
+
+1. **正常流程**：
+   - 用户通过 Poli 支付 → 支付成功 → 订单状态变为"交易成功" → 订单完成
+
+2. **白名单场景（异常流程）**：
+   - 用户通过 Poli 支付 → 支付成功（`PAYMENT_RECEIVED`）
+   - 但订单被 Poli 风控系统拦截（可能因为风险规则、异常交易模式等）
+   - **结果**：钱已经收到，但订单状态卡在"支付已收到"，没有进入"交易成功"
+   - **问题**：用户付了钱，但订单没有继续处理（可能不发货、不放款等）
+
+3. **白名单的作用**：
+   - 将这些"钱已收到但订单未完成"的订单标记为**待人工审核的白名单**
+   - 通过 `bankPaymentVerifyByAccountRecord` 方法，用银行流水进行二次验证：
+     - ✅ 币种匹配
+     - ✅ 金额匹配
+     - ✅ 交易号匹配
+   - 验证通过后，人工或系统可以放行这些订单，让它们继续正常流程
+
+#### 为什么叫"白名单"？
+
+- **黑名单**：Poli 风控拦截的订单（不允许通过）
+- **白名单**：从黑名单中经过人工核实，确认是正常交易的订单（允许通过）
+
+#### 典型场景举例：
+
+- 用户首次使用 Poli 支付大额订单，触发风控规则
+- 用户支付行为与历史模式不符（如突然从新西兰银行账户付款）
+- 支付金额与订单金额存在微小差异（如手续费问题）
+- Poli 系统暂时性故障，支付成功但未及时回调
+
+这个方法的目的就是提供一个 人工核对工具，让运营人员可以通过上传银行对账单，系统自动匹配出哪些被拦截的订单实际上已经真实付款，从而可以安全放行。
+
 
 ## 3.4 链路四：到账通知
 
@@ -1461,3 +1505,153 @@ private CommonConfigs commonConfigs;  // 通用配置，包含 Panda 系统 URL
 1. 订单已存在 → 返回已有订单信息（幂等性保证）
 2. KYC 查询失败 → 不设置 PayerId，继续流程（非阻塞）
 3. Panda 订单创建失败 → 中断流程，返回错误（阻塞，因为路由配置要求必须创建）
+
+
+Perfect! Now I have all the context I need. Let me generate the comprehensive explanation:
+
+## PaymentServiceImpl.bankPaymentVerifyByAccountRecord 方法解析
+
+**业务术语表**：
+- **Poli**: POLi Payment，一种澳洲/新西兰的银行直连支付方式
+- **银行流水对账**: 将银行账单记录与系统内支付单进行匹配核对
+- **白名单订单**: 被 Poli 风控拦截但可能是正常订单，需要人工核对放行
+- **SeqNo**: 订单序列号，系统内部订单的唯一标识
+- **TransactionId/TransactionRefNo**: Poli 支付交易流水号
+
+**方法概述**：
+根据银行流水对账单，匹配系统中被 Poli 风控拦截的白名单订单。该方法用于人工核对场景：当 Poli 支付已成功但订单被风控拦截时，通过银行流水验证确认支付真实性，以便后续人工放行订单。
+
+**相关上下文**：
+```java
+@Resource
+private ThirdPaymentOrderMapper thirdPaymentOrderMapper;  // 第三方支付单数据访问层，查询 Poli 支付记录
+
+@Resource
+private ApplyOrderBusiness applyOrderBusiness;  // 订单业务逻辑层，查询被拦截的白名单订单
+
+@Resource
+private PayerClient payerClient;  // 支付人服务客户端，查询用户 KYC 信息（姓名等）
+```
+
+**代码逐行解释**：
+```java
+89   @Override
+90   public ResultRich<List<PoliBankVerifyVO>> bankPaymentVerifyByAccountRecord(List<BankPayVerifyDTO> bankPayVerifyDTOS) {
+91       if (CollectionUtils.isEmpty(bankPayVerifyDTOS)) {  // 验证输入：银行流水列表不能为空
+92           logger.info("无银行流水对账单");
+93           return ResultRich.newInstance(ErrorCode.SYSTEM_ERROR);  // 返回系统错误
+94       }
+95   
+96       List<String> transactionRefNos = new ArrayList<>();  // 存储所有 Poli 支付单号
+97       bankPayVerifyDTOS.forEach(verifyDTO -> {  // 遍历银行流水，提取 Poli 支付单号
+98           if (!StringUtils.isEmpty(verifyDTO.getPoliTransactionRefNo())) {
+99               transactionRefNos.add(verifyDTO.getPoliTransactionRefNo());  // 收集非空的交易流水号
+100          }
+101      });
+102      if (CollectionUtils.isEmpty(transactionRefNos)) {  // ⚠️ 防御性检查：确保至少有一个有效支付单号
+103          logger.info("未获取到有效支付单号");
+104          return ResultRich.newInstance(ErrorCode.SYSTEM_ERROR);
+105      }
+106  
+107      Map<String, BankPayVerifyDTO> bankPayMap = bankPayVerifyDTOS.stream().collect(Collectors.toMap(BankPayVerifyDTO::getPoliTransactionRefNo, Function.identity(), (k1, k2) -> k1));
+108      // 构建映射：Poli交易号 → 银行流水对象，方便后续快速查找。(k1, k2) -> k1 处理重复key时保留第一个
+109  
+110      Example example = new Example(ThirdPaymentOrder.class);  // 构建 MyBatis 查询条件
+111      example.and().andIn("status", Arrays.asList(ThirdPaymentStatusEnum.PAY_SUCCESS.getStatus(), ThirdPaymentStatusEnum.UNKNOWN.getStatus()))
+112              .andIn("transactionId", transactionRefNos);
+113      // 查询条件：支付状态为"支付成功"或"未知"，且交易号在银行流水中
+114  
+115      List<ThirdPaymentOrder> paymentOrders = thirdPaymentOrderMapper.selectByExample(example);  // 查询匹配的 Poli 支付单
+116      if (CollectionUtils.isEmpty(paymentOrders)) {  // ⚠️ 边界检查：无匹配支付单时返回错误
+117          logger.info("无匹配的poli支付单号");
+118          return ResultRich.newInstance(ErrorCode.SYSTEM_ERROR);
+119      }
+120      Map<String, ThirdPaymentOrder> poliSeqNoMap = paymentOrders.stream().collect(Collectors.toMap(ThirdPaymentOrder::getApplySeqNo, Function.identity(), (k1, k2) -> k1));
+121      // 构建映射：订单号 → Poli支付单对象，用于后续根据订单号快速查找支付单
+122      List<String> seqNOs = paymentOrders.stream().map(ThirdPaymentOrder::getApplySeqNo).collect(Collectors.toList());
+123      // 提取所有订单号，用于查询白名单订单
+124  
+125      List<ApplyOrder> applyOrders = applyOrderBusiness.getPoliWhiteOrderBySeq(seqNOs);  // 查询被 Poli 拦截的白名单订单
+126      if (CollectionUtils.isEmpty(applyOrders)) {  // ⚠️ 边界检查：无白名单订单时返回错误
+127          logger.info("无匹配的白名单订单");
+128          return ResultRich.newInstance(ErrorCode.SYSTEM_ERROR);
+129      }
+130  
+131      // 推测为：开始匹配流程，验证每个白名单订单是否真实完成支付
+132      List<PoliBankVerifyVO> poliBankVerifyVOS = new ArrayList<>();  // 存储匹配成功的核对结果
+133      for (ApplyOrder applyOrder : applyOrders) {  // 遍历每个白名单订单进行验证
+134          try {
+135              // 第一步：通过订单号获取对应的 Poli 支付单
+136              ThirdPaymentOrder poliTran = poliSeqNoMap.get(applyOrder.getSeqNo());
+137              if (poliTran != null && StringUtils.isEmpty(poliTran.getTransactionId())) {  // ⚠️ 数据完整性检查：支付单必须有交易号
+138                  logger.info("订单无匹配的支付单号,订单号：{}", applyOrder.getSeqNo());
+139                  continue;  // 跳过该订单，继续处理下一个
+140              }
+141              // 第二步：通过 Poli 交易号获取对应的银行流水
+142              BankPayVerifyDTO verifyDTO = bankPayMap.get(poliTran.getTransactionId());
+143              // 第三步：验证币种是否匹配
+144              if (!verifyDTO.getCurrency().equals(applyOrder.getPayTotalAmount().getCurrencyCode())) {
+145                  logger.info("该银行流水金额不匹配币种不匹配，poli:{},seqNo:{},orderCurreny:{},bankCurreny:{}"
+146                          , poliTran.getTransactionId(), applyOrder.getSeqNo(), applyOrder.getPayTotalAmount().getCurrencyCode(), verifyDTO.getCurrency());
+147                  continue;  // 币种不匹配，跳过
+148              }
+149              // 第四步：验证金额是否匹配（转为 Double 类型比较元金额）
+150              if (!Double.valueOf(verifyDTO.getCreditAmount()).equals(Double.valueOf(applyOrder.getPayTotalAmount().getYuanAmount()))) {
+151                  logger.info("该银行流水金额不匹配,poli:{},seqNo:{},orderAmount:{},bankAmount:{}"
+152                          , poliTran.getTransactionId(), applyOrder.getSeqNo(), applyOrder.getPayTotalAmount().getYuanAmount(), verifyDTO.getCreditAmount());
+153                  continue;  // 金额不匹配，跳过
+154              }
+155  
+156  //          // 第五步（已注释）：验证支付人姓名是否匹配
+157  //          if (!StringUtils.isEmpty(verifyDTO.getPayerName())) {
+158  //              if (!(verifyDTO.getPayerName().equals(poliTran.getPayerName()) ||
+159  //                      verifyDTO.getPayerName().replaceAll(" ", "").equals(poliTran.getPayerName().replaceAll(" ", "")))) {
+160  //                  logger.error("该银行流水姓名不匹配,poli:{},seqNo:{},orderPayer:{},bankPayer:{}"
+161  //                          , poliTran.getTransactionId(), applyOrder.getSeqNo(), poliTran.getPayerName(), verifyDTO.getPayerName());
+162  //              }
+163  //          }
+164  //          // 注：姓名匹配逻辑已禁用，可能因为姓名格式差异（空格、大小写）导致误判
+165  
+166  
+167              PoliBankVerifyVO poliBankVerifyVO = convertPoliBankVerify(applyOrder, verifyDTO);  // 转换为核对结果对象
+168              poliBankVerifyVOS.add(poliBankVerifyVO);  // 添加到成功匹配列表
+169          } catch (Exception e) {  // ⚠️ 异常处理：捕获单个订单处理异常，不影响其他订单继续处理
+170              logger.error("匹配订单异常,order:{}", JSONObject.toJSONString(applyOrder), e);
+171              continue;  // 记录错误日志后继续处理下一个订单
+172          }
+173  
+174      }
+175  
+176      return ResultRich.newInstance(poliBankVerifyVOS);  // 返回所有匹配成功的核对结果
+177  }
+```
+
+**复杂逻辑详解**：
+
+- **第 107 行**（链式调用拆解）：
+  1. `bankPayVerifyDTOS.stream()` - 将银行流水列表转为流
+  2. `.collect(Collectors.toMap(...))` - 收集为 Map 结构
+  3. `BankPayVerifyDTO::getPoliTransactionRefNo` - key 为 Poli 交易号
+  4. `Function.identity()` - value 为银行流水对象本身
+  5. `(k1, k2) -> k1` - 处理重复 key：保留第一个，丢弃后续的
+
+- **第 111-112 行**（条件组合）：
+  - 状态条件：`PAY_SUCCESS`（支付成功）或 `UNKNOWN`（未知状态，推测为可能成功但未确认）
+  - 交易号条件：必须在银行流水提供的交易号列表中
+  - 业务含义：查询已支付且在银行有记录的 Poli 订单
+
+- **第 120-122 行**（双重映射构建）：
+  - 第 120 行：构建 `订单号 → 支付单` 的映射，用于后续快速查找
+  - 第 122 行：提取订单号列表，用于下一步查询白名单订单
+  - 设计目的：避免在循环中重复查询数据库，提升性能
+
+- **第 150 行**（金额比较）：
+  - 将字符串金额转为 Double 比较，而不是直接字符串比较
+  - 原因：避免 "10.00" 和 "10.0" 这类格式差异导致匹配失败
+  - 注意：Double 比较在金融场景不够精确，推测是因为这里只做初筛，不涉及最终结算
+
+**被调用的业务方法**：
+1. **applyOrderBusiness.getPoliWhiteOrderBySeq()** - 查询被 Poli 拦截的白名单订单
+2. **convertPoliBankVerify()** - 将订单和银行流水数据转换为核对结果对象
+
+需要深入解释哪些方法？（输入方法名或序号，或"无"结束）
