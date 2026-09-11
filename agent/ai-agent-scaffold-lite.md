@@ -8,4 +8,11 @@
 - 2-8 装配域节点AgentWorkflowNode(1)
 - 2-9 (2) Loop, Parallel, Sequential装填
 - 2-10 (3) Runner装填
-- 2-11 
+- 2-11
+  ```text
+  config: 注入配置，并装填进service
+	  -> service: 接收config中传入的配置，利用工厂创建agent示例
+		  -> factory
+test -> 调用被注入成bean的agent实例进行测试
+  ```
+- 2-12
