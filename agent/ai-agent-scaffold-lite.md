@@ -15,4 +15,4 @@
 		  -> factory
 test -> 调用被注入成bean的agent实例进行测试
   ```
-- 2-12
+- 2-12 原本runner强制指定agent，现在把它解耦了，让它能够在配置中设置
