@@ -1,3 +1,18 @@
+# 整体架构
+
+app中通过config注入配置，并通过`onApplicationEvent`执行决策树进行agent的初始化
+决策树在domain中定义
+
+
+
+
+
+
+
+
+
+---
+
 - 2-1 创建项目
 - 2-2 了解Spring AI等API
 - 2-3 设置智能体的配置属性和注入
