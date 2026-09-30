@@ -259,3 +259,20 @@ tool-mcp-list:
 1. **`requestTimeout` 的单位不一致**：同一个配置字段（默认值 3000），SSE 实现用 `Duration.ofMillis(...)` 当**毫秒**（3 秒），Stdio 实现用 `Duration.ofSeconds(...)` 当**秒**（3000 秒 ≈ 50 分钟）。配置里写同一个数字，两种传输方式行为差 1000 倍。这次只是把旧代码平移过来，没统一。自己用的时候留意。
 2. **McpSyncClient 没人管生命周期**：SSE/Stdio 实现里 `new` 出来的 client 只用来取一次 ToolCallback，之后既没存起来也没 close。装配是启动时一次性的，暂时不炸；但如果将来支持"运行时重新装配"，这里会漏连接/漏子进程。
 3. 接口名 `TooMcpCreateService` 少打了个 `l`（应为 `Tool`）—— 不影响运行，但三个实现类和工厂都跟着这个名字了，将来改名要一起动。
+
+## 2-15 增强装配：Runner Plugin
+
+**主线**：2-15 分支先在配置对象 `Runner` 中增加 `pluginNameList`；再新增 `MyTestPlugin`（继承 `BasePlugin`，重写用户消息、Agent 执行前、模型调用前的回调来记录信息）和 `MyLogPlugin`（继承 ADK 的 `LoggingPlugin`）。`RunnerNode` 根据配置名从 Spring 容器取出这些插件，传给带插件参数的 `InMemoryRunner` 构造器。运行时 ADK 调用插件回调，于是日志等横切逻辑能插入 Agent 执行流程，效果类似 AOP。
+
+```text
+Runner.pluginNameList → RunnerNode.getBean(name) → List<BasePlugin>
+                       → new InMemoryRunner(baseAgent, appName, plugins)
+                       → ADK PluginManager 在 runAsync() 的生命周期节点调用插件
+```
+
+### 值得记住的知识点
+
+1. **Runner 与 Plugin 是组合关系**：插件在创建 Runner 时注入，因此作用范围由这个 Runner 决定；业务 Agent 不必为日志等横切逻辑逐个改写。Spring 在这里负责创建和查找插件 Bean，真正触发回调的是 ADK 的执行流程，所以它不是 Spring AOP 代理。
+2. **回调不只是“旁观”**：ADK 0.4.0 的 `PluginManager` 按注册顺序运行插件，取第一个非空的 `Maybe` 结果并停止后续插件。`Maybe.empty()` 表示继续正常流程；非空结果的含义取决于回调，例如替换用户消息或提前给出模型响应。`MyTestPlugin` 的三个回调只记录输入、Agent 名和模型名，随后返回基类的空结果，因此目前没有改变执行结果。
+3. **注意两个命名空间**：配置里的 `myTestPlugin` 是 Spring Bean 名，供 `RunnerNode` 查找；`BasePlugin` 构造器里的 `MyTestPlugin` 是 ADK 插件名，`PluginManager` 用它识别插件并拒绝重名。两者可以不同，不能混为一谈。
+4. **Plugin 与上一节的 ToolCallback 分工不同**：ToolCallback 是提供给模型选择调用的能力；Plugin 是框架在执行边界主动调用的扩展点。`MyLogPlugin` 只是把 ADK 自带的 `LoggingPlugin` 接入这条扩展链。插件 Bean 默认是 Spring 单例，单次调用的数据宜放在回调上下文中，不宜存在插件实例字段里。
