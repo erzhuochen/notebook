@@ -276,3 +276,22 @@ Runner.pluginNameList → RunnerNode.getBean(name) → List<BasePlugin>
 2. **回调不只是“旁观”**：ADK 0.4.0 的 `PluginManager` 按注册顺序运行插件，取第一个非空的 `Maybe` 结果并停止后续插件。`Maybe.empty()` 表示继续正常流程；非空结果的含义取决于回调，例如替换用户消息或提前给出模型响应。`MyTestPlugin` 的三个回调只记录输入、Agent 名和模型名，随后返回基类的空结果，因此目前没有改变执行结果。
 3. **注意两个命名空间**：配置里的 `myTestPlugin` 是 Spring Bean 名，供 `RunnerNode` 查找；`BasePlugin` 构造器里的 `MyTestPlugin` 是 ADK 插件名，`PluginManager` 用它识别插件并拒绝重名。两者可以不同，不能混为一谈。
 4. **Plugin 与上一节的 ToolCallback 分工不同**：ToolCallback 是提供给模型选择调用的能力；Plugin 是框架在执行边界主动调用的扩展点。`MyLogPlugin` 只是把 ADK 自带的 `LoggingPlugin` 接入这条扩展链。插件 Bean 默认是 Spring 单例，单次调用的数据宜放在回调上下文中，不宜存在插件实例字段里。
+
+## 2-17 会话服务：ChatService
+
+**主线**：本分支补全 `IChatService`，新增 `ChatService` 与 `ChatCommandEntity`。`DefaultArmoryFactory` 增加按 `agentId` 取 `AiAgentRegisterVO` 的方法；`ChatService` 由此拿到装配阶段创建的 `InMemoryRunner`，实现 Agent 列表查询、Session 创建、普通消息、流式消息和多模态消息处理。`ChatCommandEntity` 承载文本、文件 URI、内联字节三类输入；`AgentNode` 同时改用上一节写的 `MySpringAI`，让自定义 MIME 转换真正进入 Agent 的模型调用链。新增的 `ChatServiceTest` 分别演示文本和图片消息。
+
+```text
+启动装配：配置 → RunnerNode → Spring Bean：agentId ↦ AiAgentRegisterVO(runner)
+运行对话：ChatService → DefaultArmoryFactory.getAiAgentRegisterVO(agentId)
+                      → sessionService.createSession / runner.runAsync
+                      → Flowable<Event> → 原样返回或阻塞收集为 List<String>
+```
+
+### 值得记住的知识点
+
+1. **装配和对话分层**：装配树负责创建并注册 Runner；`ChatService` 只查找和使用已注册的 Runner，不在每次发消息时重新装配 Agent。`AiAgentRegisterVO` 是这两个阶段的接点，里面同时保存 Agent 描述和可执行的 Runner。Agent 列表则直接来自配置表，是配置视图。
+2. **Session 是对话上下文的身份**：服务用 Runner 的 `sessionService` 按 `appName`、`userId` 创建 Session，再把 `userId`、`sessionId` 传给 `runAsync` 续聊。当前 `userSessions` 仅以 `userId` 为键；同一用户切换不同 Agent 时可能复用另一个 Runner 的 Session ID，而每个 `InMemoryRunner` 有自己的内存 Session 服务。缓存键至少应包含 `agentId`，内存会话在进程重启后也不会保留。
+3. **同一事件流有两种消费方式**：`handleMessageStream` 将 ADK 的 `Flowable<Event>` 交给调用方；返回 `List<String>` 的重载用 `blockingForEach` 等待流结束，并对每个事件调用 `stringifyContent()`。因此这个列表是事件内容的集合，不能直接等同于“最终答案”。接口直接暴露 `Event` / `Flowable`，上层也会依赖 ADK 类型。
+4. **多模态输入先统一为 ADK 的 Content**：`ChatCommandEntity` 把文本映射为 `Part.fromText`、文件 URI 映射为 `Part.fromUri`、内联字节映射为 `Part.fromBytes`，再合成 `role="user"` 的消息。文件和字节都要带 MIME 类型；`MySpringAI` 使用上一节的 `MyMessageConverter` 把媒体转换成 Spring AI 可用的 `Media`。
+5. **错误边界要看真实调用顺序**：`getAiAgentRegisterVO` 直接调用 Spring 的 `getBean(agentId, ...)`。ID 不存在时它会先抛异常，`ChatService` 后面的 `null` 判断通常不会触发；新增的 `E0001` 因而还没有覆盖这个失败路径。
