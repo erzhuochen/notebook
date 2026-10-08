@@ -5,5 +5,9 @@
   "attachmentFolderPath": "/",
   "readableLineLength": false,
   "spellcheck": false,
-  "openBehavior": ""
+  "openBehavior": "",
+  "userIgnoreFilters": [
+    "*/*.assets",
+    "**/*.assets/"
+  ]
 }
