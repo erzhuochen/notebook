@@ -7,7 +7,6 @@
   "spellcheck": false,
   "openBehavior": "",
   "userIgnoreFilters": [
-    "*/*.assets",
-    "**/*.assets/"
+    "/*.assets/"
   ]
 }

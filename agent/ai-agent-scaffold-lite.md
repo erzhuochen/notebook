@@ -279,7 +279,7 @@ Runner.pluginNameList → RunnerNode.getBean(name) → List<BasePlugin>
 
 ## 2-17 会话服务：ChatService
 
-**主线**：本分支补全 `IChatService`，新增 `ChatService` 与 `ChatCommandEntity`。`DefaultArmoryFactory` 增加按 `agentId` 取 `AiAgentRegisterVO` 的方法；`ChatService` 由此拿到装配阶段创建的 `InMemoryRunner`，实现 Agent 列表查询、Session 创建、普通消息、流式消息和多模态消息处理。`ChatCommandEntity` 承载文本、文件 URI、内联字节三类输入；`AgentNode` 同时改用上一节写的 `MySpringAI`，让自定义 MIME 转换真正进入 Agent 的模型调用链。新增的 `ChatServiceTest` 分别演示文本和图片消息。
+**主线**：本分支补全 `IChatService`，新增 `ChatService` 与 `ChatCommandEntity`。`DefaultArmoryFactory` 增加按 `agentId` 取 `AiAgentRegisterVO` 的方法；`ChatService` 由此拿到装配阶段创建的 `InMemoryRunner`，实现 Agent 列表查询、Session 创建、普通消息、流式消息和多模态消息处理。`ChatCommandEntity` 承载文本、文件 URI、内联字节三类输入；
 
 ```text
 启动装配：配置 → RunnerNode → Spring Bean：agentId ↦ AiAgentRegisterVO(runner)
@@ -295,3 +295,21 @@ Runner.pluginNameList → RunnerNode.getBean(name) → List<BasePlugin>
 3. **同一事件流有两种消费方式**：`handleMessageStream` 将 ADK 的 `Flowable<Event>` 交给调用方；返回 `List<String>` 的重载用 `blockingForEach` 等待流结束，并对每个事件调用 `stringifyContent()`。因此这个列表是事件内容的集合，不能直接等同于“最终答案”。接口直接暴露 `Event` / `Flowable`，上层也会依赖 ADK 类型。
 4. **多模态输入先统一为 ADK 的 Content**：`ChatCommandEntity` 把文本映射为 `Part.fromText`、文件 URI 映射为 `Part.fromUri`、内联字节映射为 `Part.fromBytes`，再合成 `role="user"` 的消息。文件和字节都要带 MIME 类型；`MySpringAI` 使用上一节的 `MyMessageConverter` 把媒体转换成 Spring AI 可用的 `Media`。
 5. **错误边界要看真实调用顺序**：`getAiAgentRegisterVO` 直接调用 Spring 的 `getBean(agentId, ...)`。ID 不存在时它会先抛异常，`ChatService` 后面的 `null` 判断通常不会触发；新增的 `E0001` 因而还没有覆盖这个失败路径。
+
+## 2-18 HTTP 接入层：AgentServiceController
+
+**主线**：本分支在 `api` 模块新增 `IAgentService` 和五个请求/响应 DTO，在 `trigger` 模块新增实现该接口的 `AgentServiceController`，通过 Spring MVC 注解暴露配置列表、创建会话、普通对话、流式对话四个 HTTP 入口。Controller 注入上一节的 `IChatService`：普通接口转换 DTO 并复用 `Response<T>` 包装结果；流式接口订阅 `Flowable<Event>`，用 `ResponseBodyEmitter` 逐个写出事件内容。由于 `IAgentService` 的返回类型包含 `ResponseBodyEmitter`，`api/pom.xml` 同时增加 `spring-webmvc` 依赖。
+
+```text
+HTTP 请求 → api 请求 DTO → trigger.AgentServiceController → domain.IChatService → Runner
+普通对话：List<String> → 按换行拼接 → ChatResponseDTO → Response<T>
+流式对话：Flowable<Event> → subscribe → ResponseBodyEmitter.send / completeWithError / complete
+```
+
+### 值得记住的知识点
+
+1. **Controller 是外部协议与内部服务的接点**：`IAgentService` 定义对外接口，`IChatService` 提供内部会话能力；Controller 负责参数绑定、调用服务、转换返回对象。配置列表只映射 `agentId`、`agentName`、`agentDesc`，避免把完整配置对象直接返回。`ChatRequestDTO` 目前只有文本消息，上一节的多模态命令尚未通过这个 HTTP 接口暴露；接口返回 MVC 类型也让 `api` 模块与 Spring Web 产生了依赖。
+2. **流式接口连接了两套生命周期**：订阅的三个回调分别是收到事件时 `send(event.stringifyContent())`、异常时 `completeWithError`、结束时 `complete`。Emitter 设置了三分钟超时，但本节没有保存订阅返回的 `Disposable`，也没有把 HTTP 超时或断连与取消订阅关联；响应连接的结束和模型执行的结束需要分别考虑。
+3. **理解流的输出单位**：这里逐个发送的是 ADK `Event` 的字符串内容；模型是否逐 token 返回、调用在哪个线程执行，还取决于底层模型与调度配置。普通对话则等服务收集完所有事件后再拼接成一个字符串。流式路径使用普通 `ResponseBodyEmitter`，直接发送字符串，未定义 SSE 的 `event/data` 帧或消息分隔协议，接收端需要明确怎样识别一条消息。
+4. **Session 的接口约定要一致**：`chat` 在 `sessionId` 为空时调用 `createSession`，`chat_stream` 直接使用请求中的 ID，因此流式调用要先取得有效 Session。`ChatResponseDTO` 只返回 `content`，不会把补建的 Session ID 告诉客户端；需要显式续聊时，应保存创建会话接口返回的 `sessionId`。
+5. **区分业务响应和 HTTP 协议**：普通接口把 `AppException` 转成业务错误码，把其他异常转成 `UN_ERROR`；`Response.code` 是响应体中的业务码，本节没有配置对应的 HTTP 状态映射。流式接口通过 Emitter 结束连接来处理异常，使用另一套错误表达方式。另一个参数绑定细节是 `create_session` 当前声明为 `GET + @RequestBody`，`agentId/userId` 从请求体读取，不能把它理解为查询参数绑定。
