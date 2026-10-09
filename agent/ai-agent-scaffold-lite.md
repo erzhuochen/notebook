@@ -313,3 +313,22 @@ HTTP 请求 → api 请求 DTO → trigger.AgentServiceController → domain.ICh
 3. **理解流的输出单位**：这里逐个发送的是 ADK `Event` 的字符串内容；模型是否逐 token 返回、调用在哪个线程执行，还取决于底层模型与调度配置。普通对话则等服务收集完所有事件后再拼接成一个字符串。流式路径使用普通 `ResponseBodyEmitter`，直接发送字符串，未定义 SSE 的 `event/data` 帧或消息分隔协议，接收端需要明确怎样识别一条消息。
 4. **Session 的接口约定要一致**：`chat` 在 `sessionId` 为空时调用 `createSession`，`chat_stream` 直接使用请求中的 ID，因此流式调用要先取得有效 Session。`ChatResponseDTO` 只返回 `content`，不会把补建的 Session ID 告诉客户端；需要显式续聊时，应保存创建会话接口返回的 `sessionId`。
 5. **区分业务响应和 HTTP 协议**：普通接口把 `AppException` 转成业务错误码，把其他异常转成 `UN_ERROR`；`Response.code` 是响应体中的业务码，本节没有配置对应的 HTTP 状态映射。流式接口通过 Emitter 结束连接来处理异常，使用另一套错误表达方式。另一个参数绑定细节是 `create_session` 当前声明为 `GET + @RequestBody`，`agentId/userId` 从请求体读取，不能把它理解为查询参数绑定。
+
+## 2-20 增强装配：Skills
+
+**主线**：本分支引入 `spring-ai-agent-utils:0.4.2`，在 `ChatModel` 配置对象中新增 `toolSkillsList` 及 `ToolSkills(type, path)`；新增 `ToolSkillsCreateService` 接口和 `DefaultToolSkillsCreateService` 实现，通过 `SkillsTool.builder()` 从磁盘目录或 classpath 资源构建技能回调。`ChatModelNode` 将这些回调与 MCP 回调合并，统一传入 `OpenAiChatOptions.toolCallbacks()`，让已有 Agent 能选择并加载技能说明；同时添加 `pdf`、`battle-plan` 两组技能文档、参考文件和脚本。
+
+```text
+tool-skills-list(type, path) → DefaultToolSkillsCreateService → SkillsTool → ToolCallback
+tool-mcp-list               → MCP 构建服务                              → ToolCallback[]
+                           → ChatModelNode 合并 → ChatModel → MySpringAI → LlmAgent
+运行时：模型看到技能目录 → 调用 Skill(command="pdf") → 得到基础目录和 SKILL.md 正文
+```
+
+### 值得记住的知识点
+
+1. **不同能力通过同一个工具抽象接入**：MCP 和 Skills 的构建服务都返回 `ToolCallback[]`，`ChatModelNode` 只负责收集并装配，具体加载方式留在各自实现中。本节沿用已有装配树，在模型节点扩展能力来源。Skills 配置位于 `ChatModel` 层，因此同一配置表中使用这个模型的多个 Agent 共享技能入口；Plugin 则挂在 Runner 上，由框架在生命周期节点调用。
+2. **技能通过“渐进披露”进入模型上下文**：库先递归寻找 `SKILL.md`，解析 YAML front matter，把 `name`、`description` 等元数据放进名为 `Skill` 的工具描述。模型依据这些信息选择技能，调用时传入技能名，工具才返回正文及技能基础目录。正文其实已经在启动装配时读入内存，按需的是向模型披露内容；修改磁盘文档后，已有回调不会自动重新加载。
+3. **技能说明与执行工具分工不同**：`SKILL.md` 描述做事流程，`reference.md` 和 `scripts/` 提供配套资料；当前 `SkillsTool` 只返回技能正文，不会主动读取参考文件或执行脚本。本节也没有为 Skills 配套注册文件读取、Shell 或 Python 执行工具。因此加载 `battle-plan` / `pdf` 说明后，能否完成其中的脚本步骤，还取决于 Agent 是否具备相应的执行能力。
+4. **加载位置属于服务进程的资源环境**：`directory` 使用服务器可访问的磁盘路径；`resource` 通过 `ClassPathResource` 指向工程资源。需留意本节所用 0.4.2 的实现：`addSkillsResource()` 内部仍调用 `Resource.getFile()`，再按磁盘目录扫描。开发时解包的资源目录可以这样读取，打包在 JAR 内的目录通常无法直接转成 `File`，部署时需要考虑外部技能目录或调整资源读取方式。
+5. **一个目录对应一个技能工具入口**：一个根目录下可以有多个技能，库把它们汇总到一个 `Skill` 回调中；本节的 `toolSkillsList` 却为每个配置条目分别构建回调，多个条目会产生同名工具，扩展时要考虑合并目录或工具名冲突。配置 `type` 默认是 `directory`，当前实现只识别 `directory` / `resource`，其他值会返回空数组；`ChatModelNode` 同时补了 MCP 列表的空值判断，允许只装配 Skills。
