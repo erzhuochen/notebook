@@ -66,3 +66,12 @@ String json = request.getHeader("tokenObj");
 ```
 
 所以，**读取请求属性和读取请求头是两个不同的数据来源**。检查越权时，还要追踪当前接口调用前是谁填入了 `tokenObj`，尤其要确认同名请求头经过可信网关处理，而不是直接相信客户端提供的身份。
+
+## Token 校验
+
+### 跳过校验，直接放行
+```java
+if (StrUtil.startWithAny(request.getPath().toString(), webGatewayConfigs.getSkipTokenUri())) {  
+    return chain.filter(exchange);  
+}
+```
