@@ -215,7 +215,7 @@ request.mutate()
 最后，解析层还有一个值得单独评估的点：**本机 `core` 实现会从 Token 各段还原 HMAC 和 AES 的密钥材料。签名比较通过，不能仅据此认定 Token 具备可靠的防伪能力。** 这些解析细节依据本机 `core-3.0.1-SNAPSHOT` 字节码；线上行为还需与部署版本、Nacos 配置核对。
 
 
-## 40
+## 40：被加入白名单，内部调用限制没找到
 
 |                 |                 |                                 |     |                            |                       |     |             |            |     |     |     |     |
 | --------------- | --------------- | ------------------------------- | --- | -------------------------- | --------------------- | --- | ----------- | ---------- | --- | --- | --- | --- |
@@ -229,17 +229,18 @@ request.mutate()
 2. 不会校验是否有权限调用 -> 猜测：功能不危险，能登录权限的人都有权限用？
 
 
-## 22
-|   |   |   |   |   |   |   |   |   |   |   |   |   |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-|OrderController|syncTxnStatus|POST order/v2/syncStatus|是|无 token 校验，body 含 seqNo，可触发任意订单状态同步（被滥用可能扰乱订单状态）|增加 token 校验并校验 token userId 与订单 userId 一致；限制为内部异步调用|高|田宁|2019-03-14|||||
+## 22：未校验
+
+|                 |               |                          |     |                                                  |                                                     |     |     |            |     |     |     |     |
+| --------------- | ------------- | ------------------------ | --- | ------------------------------------------------ | --------------------------------------------------- | --- | --- | ---------- | --- | --- | --- | --- |
+| OrderController | syncTxnStatus | POST order/v2/syncStatus | 是   | 无 token 校验，body 含 seqNo，可触发任意订单状态同步（被滥用可能扰乱订单状态） | 增加 token 校验并校验 token userId 与订单 userId 一致；限制为内部异步调用 | 高   | 田宁  | 2019-03-14 |     |     |     |     |
 检查：
 1. userId为空的情况
 2. seqNo？
 
 大抵是废弃了
 
-## 81
+## 81 skip
 
 |                   |                    |                              |     |                                                                   |                      |     |        |            |     |     |     |     |
 | ----------------- | ------------------ | ---------------------------- | --- | ----------------------------------------------------------------- | -------------------- | --- | ------ | ---------- | --- | --- | --- | --- |
@@ -259,61 +260,71 @@ request.mutate()
 
 对应的越权问题就是：**A 将请求中的订单标识换成 B 的订单，服务端是否仍允许提交。** 这也是该接口需要核对 token 用户与订单归属的原因。
 
-**存在明确的水平越权风险，建议保留“高”。但表格原因应改为“缺少订单归属校验”，不能笼统写成“无 token 校验”。** 以下是当前代码的静态检查结果。
+> 目前执行该接口时订单未创建，因此不能校验
 
-**1. 网关通常要求登录，但没有验证订单归属**
 
-该请求对象使用 `bizOrderNo` 指定订单，没有 `userId`，因此这个检查不能判断订单属于谁。
+## 101：未校验
 
-**2. Controller 的订单归属检查被整段注释**
+|                      |             |                                  |     |                                         |                      |     |           |            |     |     |     |     |
+| -------------------- | ----------- | -------------------------------- | --- | --------------------------------------- | -------------------- | --- | --------- | ---------- | --- | --- | --- | --- |
+| ApplyOrderController | abortUnpaid | POST applyOrder/abortUnpaid/{id} | 是   | 无 token 校验，路径 id 即 orderId 可越权放弃他人未支付订单 | token 校验并核对订单 userId | 高   | lllzzzhhh | 2018-09-29 |     |     |     |     |
 
-[OrderV3Controller.java 第 335 行 (line 335)](/D:/workspace/wh/wt/wt-web/src/main/java/com/wotransfer/web/order/controller/OrderV3Controller.java:335) 原本准备执行：
+## 107 ：被加进白名单了，从白名单放出来就能校验了
+|   |   |   |   |   |   |   |   |   |   |   |   |   |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+|ApplyOrderController|selectDonationOrderByUser|POST donationOrder/byUser/{userId}|是|路径 userId 直接接收他人 userId，无任何 token 校验，可越权查询任意用户的捐款订单证书（敏感信息泄露）|强制从 token 提取 userId，路径中 userId 与 token 不匹配时拒绝|高|葛菁|2020-02-07|网关层已校验||||
+
+
+## 114：未校验
+
+|                      |               |                     |     |                                                      |                      |     |             |            |     |     |     |     |
+| -------------------- | ------------- | ------------------- | --- | ---------------------------------------------------- | -------------------- | --- | ----------- | ---------- | --- | --- | --- | --- |
+| ApplyOrderController | verifyVoucher | POST verify/voucher | 是   | 无 token 校验，body 中 seqNoBase64 解密出 seqNo 可越权开收据（财务风险） | token 校验并核对订单 userId | 高   | gunjiezs123 | 2022-11-25 |     |     |     |     |
+
+## 128：若contentType为`multipart/form-data`，网关无法自动校验
+
+|                          |                            |                                   |     |                                               |                                 |     |        |            |     |     |     |     |
+| ------------------------ | -------------------------- | --------------------------------- | --- | --------------------------------------------- | ------------------------------- | --- | ------ | ---------- | --- | --- | --- | --- |
+| PayeeDocumentsController | payeeDocumentsUploadSingle | POST payee/document/upload/single | 是   | 无任何 token 校验，body 中 userId/payeeId 可越权上传收款人文件 | 必须 token 校验并强制以 token userId 覆盖 | 高   | wuheng | 2025-05-24 |     |     |     |     |
+
+**当前 Controller 存在明确的授权缺口，有水平越权上传风险。缺少的是上传参数与登录用户、收款人归属的绑定。**
+
+这个接口用于**上传单个收款人文件，小程序场景使用**。例如，用户 A 给自己名下的收款人上传关系证明：接口将文件上传到 OSS，再调用收款人服务处理旧文件、插入新文件记录。见 [方法第 94 行 (line 94)](/D:/workspace/wh/wt/wt-web/src/main/java/com/wotransfer/web/payee/controller/PayeeDocumentsController.java:94)。
+
+关键证据如下：
+
+1. **实际接收 multipart 表单，不是 JSON。**  
+    方法接收 `MultipartFile file` 和 `PayeeDocumentsDTO param`，`userId`、`payeeId` 来自表单字段。[参数定义第 95 行 (line 95)](/D:/workspace/wh/wt/wt-web/src/main/java/com/wotransfer/web/payee/controller/PayeeDocumentsController.java:95)。
+    
+2. **直接信任客户端提交的两个 ID。**  
+    [第 105 行 (line 105)](/D:/workspace/wh/wt/wt-web/src/main/java/com/wotransfer/web/payee/controller/PayeeDocumentsController.java:105) 和随后第 110 行执行：
+    
+    ```
+    payeeDocumentsDTO.setPayeeId(param.getPayeeId());
+    payeeDocumentsDTO.setUserId(param.getUserId());
+    ```
+    
+    整个单文件方法没有读取 token，也没有查询收款人并校验归属。
+    
+3. **网关的 `userId` 一致性检查无法覆盖这些表单字段。**  
+    [GatewayHttpUtil 第 34 行 (line 34)](/D:/workspace/wh/wt/wt-web-gateway/src/main/java/com/wotransfer/webgateway/utils/GatewayHttpUtil.java:34) 对 `multipart/form-data` 直接返回 `null`。如果 URL 查询参数也没有 `userId`，Pre40 就提取不到用户 ID，并在 [第 127 行 (line 127)](/D:/workspace/wh/wt/wt-web-gateway/src/main/java/com/wotransfer/webgateway/filters/Pre40BusinessCheckGlobalFilter.java:127) 跳过一致性检查。
+    
+4. **上传和文件记录操作前没有补做授权检查。**  
+    [第 114 行 (line 114)](/D:/workspace/wh/wt/wt-web/src/main/java/com/wotransfer/web/payee/controller/PayeeDocumentsController.java:114) 上传文件；随后第 122、124 行把客户端参数传给旧文件处理及新记录插入接口。
+    
+
+举例来说：
 
 ```
-// 获取 token 用户
-// 根据 bizOrderNo 查询订单
-// 比较 order.userId 与 token.userId
-// 不一致则拒绝
+A 的 token：userId=1001
+B 的用户：userId=2002，收款人 payeeId=502
+
+A 携带自己的 token，但表单提交：
+userId=2002
+payeeId=502
+file=测试文件
 ```
 
-这些代码全部没有执行。当前方法只检查 `bizOrderNo`、`supplement` 非空，然后直接调用：
+网关可以确认 A 已登录，但 Controller 仍会按照表单里的 B 身份和收款人构造上传记录。**如果下游没有独立校验，就可能向 B 的收款人关联文件，并影响旧文件记录。**
 
-```
-gatewayClient.syncEddInformation(param);
-```
-
-因此，**提交 EDD 信息之前没有执行订单归属校验**。
-
-**3. 下游使用目标订单的用户，没有与调用者比较**
-
-合规同步返回成功后，Controller 使用传入的 `bizOrderNo` 更新订单补充状态。
-
-[订单服务第 3787 行 (line 3787)](/D:/workspace/wh/wt/wt-order/src/main/java/com/wotransfer/order/service/impl/ApplyOrderServiceImpl.java:3787) 的处理是：
-
-```
-ApplyOrder order = applyOrderBusiness.findBySeqNo(applyOrder.getSeqNo());
-applyOrder.setUserId(order.getUserId());
-```
-
-随后按这个用户更新 EDD 标记。**这里的 `userId` 来自目标订单，不是调用者的 token，所以不是授权检查。**
-
-影响还可能超过单笔订单：[更新 SQL (line 2164)](/D:/workspace/wh/wt/wt-order/src/main/resources/mapper/ApplyOrderMapper.xml:2164) 会清除该用户所有包含相同 EDD 标记的订单中的对应标记。
-
-例如：
-
-```
-A 使用自己的有效 token
-→ 请求中填写 B 的订单号
-→ 网关验证 A 已登录
-→ Controller 未检查该订单是否属于 A
-→ 向合规服务提交 B 的订单 EDD 信息
-→ 若同步成功，更新 B 的 EDD 补充状态
-```
-
-你的表格可以改写为：
-
-> 网关校验登录身份，但 Controller 的订单归属校验被注释；接口直接使用客户端提供的 bizOrderNo 提交 EDD 信息，并在同步成功后更新目标订单用户的补充状态，存在水平越权风险。
-
-**修复重点：**在任何合规调用或写入之前，拒绝缺失、无效的登录身份，查询订单并比较 `order.userId` 与可信 token 中的 `userId`；同时由服务端确定 `bizOrderId`、`bizOrderNo`，避免两个订单标识不一致。不能只取消现有代码的注释，因为原来的条件仍会在 token 为空或用户 ID 为 0 时跳过检查。
-
-尚未进行在线复现，也未拿到 `provider-gateway` 的合规同步实现。最终可用两个测试账号验证：**A 的 token 提交 B 的测试订单 EDD，观察合规记录及订单标记是否改变。** 不要只看接口返回成功——该 Controller 最后固定返回 `new ResultRich()`，没有透传下游失败结果。
+表格的修复方案还应补充一步：**仅用 token 覆盖 `userId` 不够，必须查询并确认 `payeeId` 属于当前用户或其合法授权范围，然后才能上传、处理旧文件和插入记录。** 否则，A 仍可能提交自己的 `userId`，搭配 B 的 `payeeId`。
