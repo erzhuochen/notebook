@@ -1,6 +1,11 @@
 ## 笔记
 1. 网关会校验token，且若传入的参数中有userId 则校验token中的userId和参数中的是否相等 -> 如果参数中的userId为null，不会校验，攻击者可能会随便拿一个token，不传userId就能通过校验
 
+需要修改的接口：
+- 114：verify/voucher
+- 128
+- 
+
 ## 扩展：http请求的结构组成
 这里的 **“请求属性（attribute）”是服务端给当前请求附加的数据**。`tokenObj` 是项目约定的名称，通过 `setAttribute()` 创建，不需要提前声明字段。
 
