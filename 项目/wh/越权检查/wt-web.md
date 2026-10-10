@@ -1,3 +1,6 @@
+## 笔记
+1. 网关会校验token，且若传入的参数中有userId 则校验token中的userId和参数中的是否相等 -> 如果参数中的userId为null，不会校验，攻击者可能会随便拿一个token，不传userId就能通过校验
+
 ## 扩展：http请求的结构组成
 这里的 **“请求属性（attribute）”是服务端给当前请求附加的数据**。`tokenObj` 是项目约定的名称，通过 `setAttribute()` 创建，不需要提前声明字段。
 
@@ -210,3 +213,107 @@ request.mutate()
 此外，[Pre40BusinessCheckGlobalFilter (line 121)](/D:/workspace/wh/wt/wt-web-gateway/src/main/java/com/wotransfer/webgateway/filters/Pre40BusinessCheckGlobalFilter.java:121) 可以比较 Token 的 `userId` 与请求参数中的 `userId`。但它需要开启日志总开关和实际拦截开关；它也不检查你之前例子中的 `id` 字段或订单归属，业务接口仍需做权限判断。
 
 最后，解析层还有一个值得单独评估的点：**本机 `core` 实现会从 Token 各段还原 HMAC 和 AES 的密钥材料。签名比较通过，不能仅据此认定 Token 具备可靠的防伪能力。** 这些解析细节依据本机 `core-3.0.1-SNAPSHOT` 字节码；线上行为还需与部署版本、Nacos 配置核对。
+
+
+## 40
+
+|                 |                 |                                 |     |                            |                       |     |             |            |     |     |     |     |
+| --------------- | --------------- | ------------------------------- | --- | -------------------------- | --------------------- | --- | ----------- | ---------- | --- | --- | --- | --- |
+| OrderController | arrivalTimeSync | POST order/v2/arrival/time/sync | 是   | 内部接口无 token 校验，可任意同步到账时间配置 | 限制为内部服务调用 + 签名/IP 白名单 |     | fangdreamer | 2023-03-02 |     |     |     |     |
+这条记录**有明确的代码依据，存在未授权写入到账时间配置的风险**。我已沿网关、wt-web、wt-order 检查到数据库写入，但没有实际调用线上接口。
+
+这个方法应检查的是：**调用者有没有“同步配置”的权限**。它操作的是业务配置，比较 `userId` 不能解决这个权限问题。
+
+问题：
+1. 接口加入白名单，不会校验token -> 猜测：只希望通过内部调用？
+2. 不会校验是否有权限调用 -> 猜测：功能不危险，能登录权限的人都有权限用？
+
+
+## 22
+|   |   |   |   |   |   |   |   |   |   |   |   |   |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+|OrderController|syncTxnStatus|POST order/v2/syncStatus|是|无 token 校验，body 含 seqNo，可触发任意订单状态同步（被滥用可能扰乱订单状态）|增加 token 校验并校验 token userId 与订单 userId 一致；限制为内部异步调用|高|田宁|2019-03-14|||||
+检查：
+1. userId为空的情况
+2. seqNo？
+
+大抵是废弃了
+
+## 81
+
+|                   |                    |                              |     |                                                                   |                      |     |        |            |     |     |     |     |
+| ----------------- | ------------------ | ---------------------------- | --- | ----------------------------------------------------------------- | -------------------- | --- | ------ | ---------- | --- | --- | --- | --- |
+| OrderV3Controller | commitOrderEddInfo | POST order/v3/eddinfo/commit | 是   | 无 token 校验，body EddInformationROExt 含 bizOrderNo，可越权提交他人订单 EDD 信息 | token 校验并核对订单 userId | 高   | guanjf | 2025-07-08 |     |     |     |     |
+**接口作用**
+
+提交订单关联的汇款人或收款人 EDD 补充信息，例如 PEP（政治公众人物）声明、职业、交易关系和交易目的。接口将这些信息同步到合规系统；同步成功后，更新相关订单的 EDD 补充标记。**提交成功不等于合规审核通过。**
+
+**正常使用场景举例**
+
+用户 A 的订单被要求补充收款人 EDD 信息：
+
+1. A 打开自己的订单补充页面。
+2. 填写收款人姓名、职业、与汇款人的关系，以及 PEP 声明等内容。
+3. 前端携带该订单的 `bizOrderNo` 调用此接口。
+4. 服务端将资料提交给合规系统，并更新补充状态。
+
+对应的越权问题就是：**A 将请求中的订单标识换成 B 的订单，服务端是否仍允许提交。** 这也是该接口需要核对 token 用户与订单归属的原因。
+
+**存在明确的水平越权风险，建议保留“高”。但表格原因应改为“缺少订单归属校验”，不能笼统写成“无 token 校验”。** 以下是当前代码的静态检查结果。
+
+**1. 网关通常要求登录，但没有验证订单归属**
+
+该请求对象使用 `bizOrderNo` 指定订单，没有 `userId`，因此这个检查不能判断订单属于谁。
+
+**2. Controller 的订单归属检查被整段注释**
+
+[OrderV3Controller.java 第 335 行 (line 335)](/D:/workspace/wh/wt/wt-web/src/main/java/com/wotransfer/web/order/controller/OrderV3Controller.java:335) 原本准备执行：
+
+```
+// 获取 token 用户
+// 根据 bizOrderNo 查询订单
+// 比较 order.userId 与 token.userId
+// 不一致则拒绝
+```
+
+这些代码全部没有执行。当前方法只检查 `bizOrderNo`、`supplement` 非空，然后直接调用：
+
+```
+gatewayClient.syncEddInformation(param);
+```
+
+因此，**提交 EDD 信息之前没有执行订单归属校验**。
+
+**3. 下游使用目标订单的用户，没有与调用者比较**
+
+合规同步返回成功后，Controller 使用传入的 `bizOrderNo` 更新订单补充状态。
+
+[订单服务第 3787 行 (line 3787)](/D:/workspace/wh/wt/wt-order/src/main/java/com/wotransfer/order/service/impl/ApplyOrderServiceImpl.java:3787) 的处理是：
+
+```
+ApplyOrder order = applyOrderBusiness.findBySeqNo(applyOrder.getSeqNo());
+applyOrder.setUserId(order.getUserId());
+```
+
+随后按这个用户更新 EDD 标记。**这里的 `userId` 来自目标订单，不是调用者的 token，所以不是授权检查。**
+
+影响还可能超过单笔订单：[更新 SQL (line 2164)](/D:/workspace/wh/wt/wt-order/src/main/resources/mapper/ApplyOrderMapper.xml:2164) 会清除该用户所有包含相同 EDD 标记的订单中的对应标记。
+
+例如：
+
+```
+A 使用自己的有效 token
+→ 请求中填写 B 的订单号
+→ 网关验证 A 已登录
+→ Controller 未检查该订单是否属于 A
+→ 向合规服务提交 B 的订单 EDD 信息
+→ 若同步成功，更新 B 的 EDD 补充状态
+```
+
+你的表格可以改写为：
+
+> 网关校验登录身份，但 Controller 的订单归属校验被注释；接口直接使用客户端提供的 bizOrderNo 提交 EDD 信息，并在同步成功后更新目标订单用户的补充状态，存在水平越权风险。
+
+**修复重点：**在任何合规调用或写入之前，拒绝缺失、无效的登录身份，查询订单并比较 `order.userId` 与可信 token 中的 `userId`；同时由服务端确定 `bizOrderId`、`bizOrderNo`，避免两个订单标识不一致。不能只取消现有代码的注释，因为原来的条件仍会在 token 为空或用户 ID 为 0 时跳过检查。
+
+尚未进行在线复现，也未拿到 `provider-gateway` 的合规同步实现。最终可用两个测试账号验证：**A 的 token 提交 B 的测试订单 EDD，观察合规记录及订单标记是否改变。** 不要只看接口返回成功——该 Controller 最后固定返回 `new ResultRich()`，没有透传下游失败结果。
