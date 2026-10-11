@@ -4,7 +4,6 @@
 需要修改的接口：
 - 114：verify/voucher
 - 128
-- 
 
 ## 扩展：http请求的结构组成
 这里的 **“请求属性（attribute）”是服务端给当前请求附加的数据**。`tokenObj` 是项目约定的名称，通过 `setAttribute()` 创建，不需要提前声明字段。
