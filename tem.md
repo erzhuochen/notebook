@@ -1,76 +1,86 @@
-# 需求概述
+我正在审查 Java 项目的接口越权问题，会逐条提供接口名称和分析表格。请结合本地代码判断，重点遵守以下要求。
 
-## 需求背景
+**我的要求**
 
-欺诈分子往往在注册账户后，使用同一个设备号完成 KYC。针对这类设备，需要进行预警及必要的拉黑确认，防止对应 KYC 创建订单并造成不必要的资损。
+1. **使用中文解释，先给结论。** 判断我提供的分析哪些正确、哪些需要修正，不要直接接受表格中的漏洞描述。
+2. **每次检查接口，都补充接口作用和正常使用场景举例。** 说明实际读取或修改了什么，不能只根据方法名推断功能。
+3. **所有关键代码判断都给出文件位置和准确行号，使用可点击的绝对路径链接。**
+4. **沿完整调用链检查：入口 → 网关/拦截器 → Controller → Wrapper/Feign → 具体服务 → 数据库操作。** Controller 没有 token 校验，不代表整个接口没有认证。
+5. **区分登录认证与资源授权。** 有效 token 只能证明调用者已登录；请求中的 `userId` 与 token 相等，也不能证明请求指定的订单、收款人或全球账号属于调用者。
+6. 对普通用户操作自己的资源，应确认资源归属或明确授权；可以先查资源所有者再比较，也可以用“资源标识 + 可信用户身份”作为数据库条件。管理员、内部服务、公开分享/验证接口需要结合各自的授权规则判断。
+7. **区分静态代码缺口、可利用风险和实际验证成功。** 没有检查线上配置、最终服务或执行结果时，明确说明限制，不要宣称漏洞已实测。
+8. 举越权例子时，使用测试账号 A、B，说明替换哪个参数、预期应如何拒绝；验证要检查实际数据变化，不能只看 HTTP 200。
+9. 当前主要任务是分析和讲解，**没有要求修改代码或调用线上接口**。
+10. 不输出代码中的 token、密钥等敏感值。
 
-## 需求目的
+**代码检索规则**
 
-1. 客户管理、KYC 审核新增【欺诈-待观察拉黑】按钮。用户被拉黑后，客户管理页面和KYC审核页面对应记录整行变成黄色。
-2. 被【欺诈-待观察拉黑】的客户创建订单时，需要阻止到账，并将订单标记为粉色。
+仓库根目录存在 `.codegraph/` 时，必须先使用 CodeGraph 理解或定位代码，再使用 `rg` 或读取未覆盖的代码。没有索引就直接使用 `rg`，不要自行创建索引。
 
-## 基本信息
+**项目位置**
 
-| 项目 | 内容 |
-| --- | --- |
-| 受益市场 | 全市场 |
-| 受益模块 | 欺诈拉黑模块 |
-| 开发人员 |  |
+- 当前工作目录：`D:\workspace\wh\wt`
+- Web 入口：`D:\workspace\wh\wt\wt-web`，有 CodeGraph 索引。
+- Web 网关：`D:\workspace\wh\wt\wt-web-gateway`，有 CodeGraph 索引。
+- 订单服务：`D:\workspace\wh\wt\wt-order`
+- 美国订单服务：`D:\workspace\wh\wt\wt-usorder`
+- 实体类：`D:\workspace\wh\wt\wt-entity`
+- 同目录还包括 `wt-gateway`、`wt-risk`、`wt-compliance-data`、`wt-common-oss` 等；不要混淆 `wt-gateway` 和 `wt-web-gateway`。
+- 全球登录中心：`D:\workspace\wh\glc`，包含 `glc-web`、`glc-core`，此前没有 CodeGraph 索引。
+- 管理后台：`D:\workspace-wh\manager-shiro`
+- 管理数据服务：`D:\workspace-wh\manager-data`
 
-## 修订日志
+继续工作前核对当前目录、索引、AGENTS.md 和代码，因为我可能继续放入项目或修改代码。
 
-| 时间 | 记录 |
-| --- | --- |
-| 2026-09-21 13:50:26 | 更新了需求 |
+**已经讨论清楚的共同结论**
 
-# 页面及交互
+- 网关比较“请求 `userId` 与 token `userId`”，不能代替订单、收款人等资源的归属检查。
+- 不传 `userId`，可能跳过参数一致性检查，但不会自动跳过受保护接口的 token 认证。
+- URI 白名单只是跳过认证，不能证明调用者是内部服务。
+- 当前 Web 网关的白名单 IP 功能允许缺少 token 的请求通过，**不是“只允许这些 IP 访问，拒绝其他 IP”**。生产网络层限制尚未核实。
+- `manager-shiro` 的管理入口有 Shiro 权限检查，但这些权限不会自动保护绕过管理入口、直接调用的 Web 接口。
+- Web 网关 `Pre40BusinessCheckGlobalFilter` 的检查受配置开关影响；multipart 请求体不会由当前读取逻辑解析，因此表单中的 `userId` 可能不被检查。
 
-## 客户管理后台、KYC 审核后台：新增【欺诈-待观察拉黑】按钮
+**已审查接口的重要结果**
 
-### 页面原型
+|接口|已得结论|
+|---|---|
+|`order/v2/arrival/time/sync`|同步到账时间配置，按 `envId` 插入或更新；不是修改单笔订单实际到账时间。网关白名单覆盖，Web 和订单服务未见调用者授权。管理后台入口有权限检查，直接同步入口需要独立保护。|
+|`order/v3/eddinfo/commit`|提交订单 EDD 信息。网关通常需要 token，但订单归属检查被注释。请求通过 `bizOrderNo` 指定订单，没有请求 `userId`，网关参数比较不能保护它。下游补充材料更新可能影响目标用户的多笔匹配订单。|
+|`payee/document/upload/single`|小程序单文件上传，参数是 multipart 表单。直接使用请求中的 `userId/payeeId` 上传文件并处理文档记录，没有归属检查。仅覆盖 `userId` 不够，还必须确认 `payeeId` 属于调用者或获授权。最终 `service-payee/provider-oss` 实现未核实。|
+|`applyOrder/abortUnpaid/{id}`|实际只设置 `remindFlag=1`，不取消订单。Web 转发 token，但订单服务不使用；最终更新条件只有订单 ID，存在修改他人提醒标志的风险。|
+|`order/v2/syncStatus`|Web 和订单分发层没有归属检查；按市场分发。可见澳洲、美国实现都是 `return null`，不能因此宣称能实际修改他人订单；其他市场实现未核实。|
+|`verify/voucher`|Base64 解码后还有 AES 解密，取得订单号，查询订单及已有收据记录；不创建收据。未见归属校验，但若业务允许持有验证凭据的人公开查询，需要按公开授权范围判断。仅知道订单号并做 Base64 编码不足以构造有效凭据。|
 
-![KYC 审核后台原型一](C:\Users\erzhuochen\Downloads\downloadRPRD3154001/image2025-3-26_14-56-19.png)
+另外，曾发现部分调用映射差异：美国客户端使用 `syncStatus`，美国 Controller 使用 `syncTxnStatus`；订单详情客户端声明 GET，服务 Controller 声明 POST。实际转发行为尚未验证。
 
-![KYC 审核后台原型二](C:\Users\erzhuochen\Downloads\downloadRPRD3154001/image2025-3-26_15-12-19.png)
+**最近审查：`POST /login/switchLogin`**
 
-### 按钮交互
+表格原描述：
 
-客户管理、KYC 审核新增【欺诈-待观察拉黑】按钮。操作人员人工判断用户存在可疑交易行为后，手动点击该按钮，系统弹窗确认是否将其加入欺诈待观察名单。
+> 无 token 校验，body 含 phoneNumber/email，可切换任意账号到任意市场。
 
-- 确认添加：将用户加入【欺诈-待观察】名单，记录其设备号，并提示“添加成功”。该用户的 客户管理和KYC 记录整行变成黄色。
-- 取消添加：关闭弹窗，不添加名单。
+需要修正：
 
-### 存储字段
+- `glc-web` 注册了 token 拦截器，`switchLogin` 不在排除列表中；普通非白名单请求需要 token。
+- Controller 仅转发请求体和 token。
+- `glc-core` 接收方法没有读取 token，而是按请求中的 **`gToken + 目标市场 + server + vendor`** 查账号。
+- 查到目标账号后，用目标账号的 `userId` 覆盖请求中的 `id`，再执行市场切换和 KYC 查询。
+- 没有把请求 `gToken` 与当前认证用户绑定。即使请求 `userId` 与 token 相等，也不能保护实际选中的全球账号。
+- 当前不能证明仅凭手机号/邮箱就能成功，也没有证明能取得他人的登录 token。
+- 正确修复应从可信 token 身份和原市场解析所属全球账号，再定位该账号的目标市场身份。不同市场账号 ID 可能不同，不能简单比较目标市场 ID 与原 token ID。
+- 尚未核实最终 `service-payer` 实现或实际执行结果。
 
-手工拉黑的客户，需要记录以下字段：
+关键代码位置：
 
-| 字段名称 | 说明                      |
-| ---- | ----------------------- |
-| 姓    |                         |
-| 名    |                         |
-| 出生日期 |                         |
-| 证件号  |                         |
-| 设备号  | 设备号可能发生变更；该风险已与需求发起方确认。 |
-| 用户编号 |                         |
+- [Web token 拦截器注册 (line 55)](/D:/workspace/wh/glc/glc-web/src/main/java/com/wotransfer/glc/web/interceptor/WebAppConfigurer.java:55)
+- [Token 校验 (line 66)](/D:/workspace/wh/glc/glc-web/src/main/java/com/wotransfer/glc/web/interceptor/TokenInterceptor.java:66)
+- [switchLogin Web 入口 (line 903)](/D:/workspace/wh/glc/glc-web/src/main/java/com/wotransfer/glc/web/controller/LoginController.java:903)
+- [核心账号选择及切换 (line 357)](/D:/workspace/wh/glc/glc-core/src/main/java/com/wotransfer/glc/core/controller/GlobalUserController.java:357)
+- [目标账号查询 SQL (line 96)](/D:/workspace/wh/glc/glc-core/src/main/resources/mapper/GlobalUserKycsMapper.xml:96)
+- [市场切换调用 (line 250)](/D:/workspace/wh/glc/glc-core/src/main/java/com/wotransfer/glc/core/service/impl/GlobalUserServiceImpl.java:250)
+- [KYC 查询调用 (line 706)](/D:/workspace/wh/glc/glc-core/src/main/java/com/wotransfer/glc/core/service/impl/GlobalUserServiceImpl.java:706)
 
-### 订单处理
+可用于审查表的描述：
 
-名单内的用户若尝试创建订单，系统依据欺诈规则拦截，并交由专员审核是否放行。对应订单变成粉色，且禁止到账。
-
-即使同一设备切换市场，也需要拦截对应订单。例如，从澳洲汇入中国切换到欧洲汇入中国。
-
-## 欺诈单风控提示
-
-![欺诈单风控提示原型](C:\Users\erzhuochen\Downloads\downloadRPRD3154001/image2025-3-26_14-59-39.png)
-
-规则内容：该客户疑似欺诈客户，已加入待观察名单等待处置。
-
-# 本单欺诈信息
-
-| 订单编号      | 规则编号  | 规则内容          | 执行       | 是否放行 | 放行原因   | 放行人      | 欺诈命中信息 | 放行时间 |
-| --------- | ----- | ------------- | -------- | ---- | ------ | -------- | ------ | ---- |
-| 取客户对应的订单号 | QZ001 | 客户被加入欺诈名单，待处理 | 等待相关人员确认 | 未放行  | 记录放行原因 | 记录对应操作人员 |        |      |
-
-# 补充要求
-
-若客户为简化 KYC 开户，则需要在对应订单中插入备注信息：该客户为简化KYC开户时创建的订单，请留意。
+> 已校验 token，但未绑定请求中的 gToken 与当前登录用户；替换全球账号标识可能触发其他账号的市场切换及 KYC 查询，存在横向越权风险，实际影响需进一步验证。
