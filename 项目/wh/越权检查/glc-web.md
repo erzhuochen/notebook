@@ -1,7 +1,13 @@
-## 17
-|   |   |   |   |   |   |   |   |   |
-|---|---|---|---|---|---|---|---|---|
-|LoginController|switchLogin|POST /login/switchLogin|是|切换市场登录，body Users 含 phoneNumber/email；无 token 校验 → 切换任意账号到任意市场|添加 token 校验并校验 tokenUserId = param.userId|高|guanjf|2024-03-23|
+## 17：gtoken拿b的，可以切换到b的userId
+
+|                 |             |                         |     |                                                                |                                           |     |        |            |
+| --------------- | ----------- | ----------------------- | --- | -------------------------------------------------------------- | ----------------------------------------- | --- | ------ | ---------- |
+| LoginController | switchLogin | POST /login/switchLogin | 是   | 切换市场登录，body Users 含 phoneNumber/email；无 token 校验 → 切换任意账号到任意市场 | 添加 token 校验并校验 tokenUserId = param.userId | 高   | guanjf | 2024-03-23 |
+
+### 注意
+1. gtoken不是token，是uuid生成的随机数，不会改变
+
+
 ### 代码流程
 **`switchLogin` 用于同一个全球账号切换市场：定位目标市场账号，必要时调用下游创建或关联账号，执行市场切换，更新全球账号的登录记录，最后返回目标市场的用户及 KYC 信息。**
 
@@ -138,3 +144,8 @@ GLC 的拦截器还有一个可配置的“请求 `userId` 与 token 一致”�
 > **已校验 token，但未绑定请求中的 gToken 与当前登录用户；可通过替换全球账号标识触发其他账号的市场切换及 KYC 查询，存在横向越权风险。**
 
 目前是静态代码结论，尚未核实 `service-payer` 的最终实现或实际执行结果。验证时应使用两个测试账号，保留 A 的 token，仅替换为 B 的 `gToken`，检查返回账号、KYC 信息和登录记录是否属于 B。
+
+
+
+
+## 19：
