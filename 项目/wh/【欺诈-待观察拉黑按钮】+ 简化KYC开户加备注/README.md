@@ -3,7 +3,7 @@
 > 状态：已确认
 > 模块及适用范围：欺诈拉黑模块；全市场（四个区域部署各自独立）；熊猫汇款订单 + TopUp 充值订单
 > 负责人：cze
-> 最后更新：2026-10-08
+> 最后更新：2026-10-14
 
 ## 两分钟回忆
 
@@ -11,7 +11,7 @@
 - **一句话方案**：在客户管理和 KYC 审查页加「欺诈-待观察拉黑」按钮，把客户的身份信息和全部设备号写入新表 `fraud_watch_list`。新欺诈规则 **QZ001** 在订单付款成功后的欺诈校验中比对名单，命中就写 `fraud_order` 拦截订单，等专员逐单放行。另外，简化 KYC 客户下单时给订单加一条备注。
 - **核心链路**：运营点拉黑 → 名单写入身份行和设备行 → 客户（或同设备的其他账号）下单并付款成功 → 风控 MQ → `evaluateFraudRisk` → QZ001 命中 → 订单被拦截，申请单操作格变粉 → 专员在「本单欺诈信息」放行 → 订单继续清分。
 - **最容易忘的细节**：
-  - 规则编号是 `QZ001`。规则内容「客户被加入欺诈名单，待处理」，执行「等待相关人员确认」。
+  - 规则编号是 `QZ001`，执行「等待相关人员确认」。规则内容按客户被拉黑的页面区分：「客户在KYC审查中被加入欺诈名单，待处理」或「客户在客户管理中被加入欺诈名单，待处理」；两处都有就写「客户在KYC审查、客户管理中…」；来源未知时用枚举兜底文案「客户被加入欺诈名单，待处理」。
   - **只在付款成功后才触发**，只下单不付款不会拦。
   - 名单内客户整行显示黄色 `#FFE58F`（KYC 审查页、客户管理页）。被拦订单的申请单操作格显示粉色 `#fc89c3`。
   - 变粉依赖 **manager-data** 的 Nacos 配置 `common.risk.seriousFraudRule` 里包含 `QZ001`，没配就显示灰色。
@@ -58,10 +58,10 @@
 | 步骤 | 触发者与触发时点 | 前置条件 | 系统动作 | 页面或数据结果 | 取消、失败或例外 |
 | --- | --- | --- | --- | --- | --- |
 | 1 | 运营在客户管理「更多 → 欺诈-待观察拉黑」，或在 KYC 审查行操作栏点人形图标 | 客户不在名单中；有 `root:customer:fraudWatchAdd` 权限 | 弹出确认框「当前操作会将客户加入欺诈黑名单，是否确认？」 | — | 点「取消」直接关闭，不写名单 |
-| 2 | 运营点「确定」 | — | manager-shiro 转发到 manager-data，再通过 Feign 调 wt-risk `/risk/fraud/watch/add`。wt-risk 查 KYC：信息齐全就写 1 行身份行；查该用户在 `user_operate_info` 的全部设备号，每台写 1 行设备行；两者都没有时写 1 行空身份行兜底 | 客户管理提示「添加成功（身份信息 X 条、设备 Y 个）」，KYC 审查页提示「添加成功」；列表刷新后该行变黄 | 已在名单：「该客户已在欺诈待观察名单中」。查不到 KYC 不报错，只写设备 |
+| 2 | 运营点「确定」 | — | 前端带上来源 `source`（KYC 审查传 1，客户管理传 2），经 manager-shiro、manager-data，再通过 Feign 调 wt-risk `/risk/fraud/watch/add`。wt-risk 查 KYC：信息齐全就写 1 行身份行；查该用户在 `user_operate_info` 的全部设备号，每台写 1 行设备行；两者都没有时写 1 行空身份行兜底。本次写入的所有行记同一个 `source` | 客户管理提示「添加成功（身份信息 X 条、设备 Y 个）」，KYC 审查页提示「添加成功」；列表刷新后该行变黄 | 已在名单：「该客户已在欺诈待观察名单中」。`source` 缺失或不是 1/2：「来源不能为空」。查不到 KYC 不报错，只写设备 |
 | 3 | 客户（或同设备的其他账号）下单 | — | 正常创建订单 | 订单 `TRANSACTION_ING` | 只下单不付款不会触发欺诈校验 |
 | 4 | 订单付款成功（例如 AU 资金对账确认后发风控 MQ；TopUp 在 tp 结算成功后调 `/risk/tp/fraud`） | 源币种在 wt-order `riskMQSupportSourceCurrency` 内；没有被 `doRiskJudge` 的前置检查拦下 | `evaluateFraudRisk` 读 `fraud_config` 拿到 QZ001，执行 `QZ001.exec`，比对用户编号、身份串、下单用户全部设备号 | — | 本单已经有放行记录时整套欺诈规则跳过；规则执行异常只记日志，视为未命中 |
-| 5 | QZ001 命中 | — | 写入 `fraud_order`（`order_id`=订单主键，`fraud_id`=QZ001，`fraud_pass_status`=1），覆盖订单 NOTE 为规则内容，并写备注历史；风控流程到此停止，不进合规和清分；美国订单额外发 signal REVIEW（沿用现有逻辑） | 申请单操作格变粉；订单详情「欺诈信息」tab 变粉；「本单欺诈信息」出现一行 QZ001「未放行」 | `seriousFraudRule` 未配 QZ001 时显示灰色 |
+| 5 | QZ001 命中 | — | 按命中记录的 `source` 拼出带来源的规则内容；写入 `fraud_order`（`order_id`=订单主键，`fraud_id`=QZ001，`fraud_content`=该规则内容，`fraud_pass_status`=1），覆盖订单 NOTE 为该规则内容，并写备注历史；风控流程到此停止，不进合规和清分；美国订单额外发 signal REVIEW（沿用现有逻辑） | 申请单操作格变粉；订单详情「欺诈信息」tab 变粉；「本单欺诈信息」出现一行 QZ001「未放行」 | `seriousFraudRule` 未配 QZ001 时显示灰色 |
 | 6 | 专员在订单详情「本单欺诈信息 → 欺诈放行」，填写放行原因 | — | `fraud_order` 改为 2（已放行），记录放行人、原因、时间；该订单继续清分 | 粉色消失，显示「已放行」 | 放行只对本单有效，客户下一单仍会被拦 |
 | 7 | 运营在客户管理「更多 → 移出欺诈-待观察」，或 KYC 审查行操作栏的黄色人形图标 | 客户在名单中；有 `root:customer:fraudWatchRemove` 权限 | 弹出输入框填写原因；wt-risk 把该用户所有生效行改为 0（已移出），记录移出人、原因、时间 | 提示「移出成功」，行颜色恢复 | 不在名单：「该客户不在欺诈待观察名单中」。已被拦但未放行的订单**不会**自动放行 |
 | 8 | 客户下单（新下单链路 `OrderServiceRefactor.commit` 的最后一步） | KYC 状态 = 21（SHORT_KYC） | 订单 NOTE 覆盖为「该客户为简化KYC开户时创建的订单，请留意。」，并写一条备注历史（`createBy=system`） | 订单备注和备注历史里可以看到这条提示 | 这一步失败只记日志，不影响下单；之后其他流程可能覆盖 NOTE，但备注历史保留 |
@@ -70,7 +70,7 @@
 
 | 规则编号 | 触发时点 | 命中条件与匹配对象 | 处理动作 | 适用范围 | 例外及优先级 |
 | --- | --- | --- | --- | --- | --- |
-| QZ001 | 订单付款成功后的欺诈校验（`evaluateFraudRisk`）；TopUp 为 tp 结算成功后 | 名单中**生效**（status=1）的记录，满足任一条即命中：① `user_id` 等于下单用户；② 身份行内容等于下单人 KYC 拼出的「姓\|名\|yyyy-MM-dd\|证件号md5」；③ 设备行内容等于下单用户在 `user_operate_info` 里的**任一历史设备号** | 写 `fraud_order` 一行（未放行），覆盖订单 NOTE 为规则内容，写备注历史，返回拦截，不进合规和清分 | `fraud_config`：`ALL/ALL/QZ001/status=1`，type 0（熊猫）和 type 1（TopUp）各一行 | 订单已经有放行记录时，所有欺诈规则都跳过；下单人 KYC 身份信息不全时跳过身份比对；空设备号和无效设备号不参与比对 |
+| QZ001 | 订单付款成功后的欺诈校验（`evaluateFraudRisk`）；TopUp 为 tp 结算成功后 | 名单中**生效**（status=1）的记录，满足任一条即命中：① `user_id` 等于下单用户；② 身份行内容等于下单人 KYC 拼出的「姓\|名\|yyyy-MM-dd\|证件号md5」；③ 设备行内容等于下单用户在 `user_operate_info` 里的**任一历史设备号** | 写 `fraud_order` 一行（未放行），覆盖订单 NOTE 为规则内容（带来源，见下方），写备注历史，返回拦截，不进合规和清分 | `fraud_config`：`ALL/ALL/QZ001/status=1`，type 0（熊猫）和 type 1（TopUp）各一行 | 订单已经有放行记录时，所有欺诈规则都跳过；下单人 KYC 身份信息不全时跳过身份比对；空设备号和无效设备号不参与比对 |
 | 简化KYC备注 | 新下单链路 `OrderServiceRefactor.commit()` 末尾 | 下单人 `kyc_status = 21（SHORT_KYC）` | 订单 NOTE **覆盖**为「该客户为简化KYC开户时创建的订单，请留意。」，并写备注历史 | 所有走 `OrderServiceRefactor.commit` 的订单（所有市场的子类都会走到） | 只判断 21，不含 INIT / WAIT_IDENTITY_SUBMIT；旧链路不覆盖；失败不影响下单 |
 
 **身份串的规范化规则**（拉黑和比对用同一套）：
@@ -78,6 +78,16 @@
 - 出生日期：兼容 `yyyy-MM-dd`、`yyyy/MM/dd`、`yyyyMMdd`、`dd/MM/yyyy`、`dd-MM-yyyy`，以及带时间的写法，统一转成 `yyyy-MM-dd`。
 - 证件号：直接用 KYC 行里现成的 `id_number_md5`。
 - 四项中**任一为空就不生成身份串**，避免同名用户互相命中。
+
+**QZ001 规则内容的拼法**（写入 `fraud_content`、订单 NOTE、备注历史）：
+1. 取本单所有命中记录里不为空的 `source`，去重。
+2. 按「KYC审查、客户管理」的固定顺序拼成「客户在{来源}中被加入欺诈名单，待处理」：
+   - 只有 1：「客户在KYC审查中被加入欺诈名单，待处理」
+   - 只有 2：「客户在客户管理中被加入欺诈名单，待处理」
+   - 1 和 2 都有：「客户在KYC审查、客户管理中被加入欺诈名单，待处理」
+3. 命中记录的 `source` 全为空（加列之前的旧数据）时，使用枚举兜底文案「客户被加入欺诈名单，待处理」。
+
+一单同时命中两种来源的典型情况：下单用户本人在客户管理被拉黑，同时他用过的某台设备属于另一个在 KYC 审查被拉黑的用户。
 
 **无效设备号**（不写入、不比对）：空串、`null`、`undefined`、`unknown`、`0`、`00000000-0000-0000-0000-000000000000`。
 
@@ -89,7 +99,7 @@
 - 入口在操作列的「更多」下拉里：
   - 不在名单时显示 112「欺诈-待观察拉黑」。
   - 在名单时显示 113「移出欺诈-待观察」。
-- 拉黑：确认框文案「当前操作会将客户加入欺诈黑名单，是否确认？」，按钮为「确定 / 取消」；成功后提示后端返回的「添加成功（身份信息 X 条、设备 Y 个）」。
+- 拉黑：确认框文案「当前操作会将客户加入欺诈黑名单，是否确认？」，按钮为「确定 / 取消」；请求带 `source: 2`；成功后提示后端返回的「添加成功（身份信息 X 条、设备 Y 个）」。
 - 移出：输入框标题「移出欺诈-待观察名单，请输入原因」；成功后提示「移出成功」。
 - 名单内的客户整行底色 `#FFE58F`；搜索和刷新后颜色保留。
 - 英文版 `customerEn.js` 只有行变色，没有按钮。
@@ -98,7 +108,7 @@
 - 行操作栏图标：
   - 不在名单：普通人形图标「欺诈-待观察拉黑」。
   - 在名单：黄色人形图标「移出欺诈-待观察」。
-- 确认框、原因输入框同客户管理；拉黑成功固定提示「添加成功」，不显示条数。
+- 确认框、原因输入框同客户管理；拉黑请求带 `source: 1`；拉黑成功固定提示「添加成功」，不显示条数。
 - 名单内的客户整行底色 `#FFE58F`，**优先于** EU 道琼斯状态的底色（`CHECKING` 为黄色 `#FFFF00`，`P_CHECKING` 为粉色 `#FF60AF`）。
 - 调用的是客户管理的接口 `customerCenter/customer/fraudWatch/*`。
 
@@ -123,6 +133,7 @@
 | type | — | 加入时 | 1 = 身份行，2 = 设备行 | — |
 | content | 身份行：KYC 拼成的身份串；设备行：`user_operate_info.unique_identification` | 加入时 | 比对 | 兜底行的 content 为空串 |
 | status | — | 加入时为 1；移出时改为 0 | 只有 1 参与命中和变色 | 移出后可以重新加入，会新增一批行 |
+| source | 前端传入：KYC 审查 = 1，客户管理 = 2 | 加入时 | 命中时拼规则内容，区分拉黑来源 | 同一批写入的行值相同；加列之前的旧数据为 NULL；移出时不记录来源 |
 | create_operator / create_time | 请求头 `mg-loginName` | 加入时 | 操作记录 | — |
 | remove_operator / remove_reason / remove_time | `mg-loginName`；页面输入的原因 | 移出时 | 操作记录 | — |
 | update_time | — | 加入、移出时 | — | — |
@@ -134,7 +145,7 @@
 **欺诈记录 `fraud_order`**（沿用现有表）：QZ001 命中时写入：
 - `order_id`：订单**主键 ID**，不是 SEQ_NO。
 - `fraud_id`：QZ001。
-- `fraud_content`：规则内容。
+- `fraud_content`：带来源的规则内容（拼法见第 3 节）。
 - `fraud_solution`：执行。
 - `fraud_pass_status`：1。
 - 放行时更新 `fraud_pass_status=2`、`release_user`、`fraud_pass_reason`、`release_time`。
@@ -164,6 +175,8 @@
   - 设备号会变化：名单只存拉黑当时的快照，不会动态刷新。需求方已接受这个风险。
   - 多市场用户：身份行只按页面传入的国家码查一次 KYC。客户管理传注册国家，KYC 审查传该 KYC 行的国家，EU 国家统一转成 EUR。
   - 简化 KYC 状态 21 在客户补全完整 KYC 后会变，之后的订单不再加备注。
+  - 拉黑来源：请求没带 `source` 或不是 1/2 时直接拒绝，不写名单。加列之前的旧名单记录 `source` 为 NULL，命中时不参与来源拼接；全部为 NULL 时用兜底文案。
+  - 来源是前端传入的，后端不校验调用方页面；接口受 `root:customer:fraudWatchAdd` 权限保护，风险可接受。
 - **撤销、解除、放行或回退时**：
   - 移出名单后，已被拦、尚未放行的订单**不会自动放行**，仍需专员逐单处理。
   - 放行只针对本单；名单不变，客户下一单仍会被拦。
@@ -188,6 +201,11 @@
 | 正常拉黑（有 KYC） | 客户 KYC 完整，有 3 个设备 | 客户管理「更多 → 欺诈-待观察拉黑 → 确定」 | 提示「添加成功（身份信息 1 条、设备 3 个）」；名单表新增 4 行，status=1；客户管理和 KYC 审查两处该行都变黄 |
 | 仅注册客户拉黑 | 客户没有 KYC，有 1 个注册设备 | 客户管理拉黑 | 提示「添加成功（身份信息 0 条、设备 1 个）」；名单表新增 1 行设备行 |
 | 本人下单被拦 | 名单内客户 | 下单并付款成功 | `fraud_order` 新增 QZ001、未放行；订单备注为规则内容；申请单操作格变粉；本单欺诈信息显示 QZ001「未放行」；订单不清分 |
+| 区分来源：KYC 审查 | 客户在 KYC 审查页被拉黑（`source`=1） | 下单并付款成功 | 订单备注、备注历史、本单欺诈信息的规则内容均为「客户在KYC审查中被加入欺诈名单，待处理」 |
+| 区分来源：客户管理 | 客户在客户管理页被拉黑（`source`=2） | 下单并付款成功 | 规则内容为「客户在客户管理中被加入欺诈名单，待处理」 |
+| 区分来源：两处同时命中 | 下单用户本人在客户管理被拉黑，且其用过的设备属于另一个在 KYC 审查被拉黑的用户 | 下单并付款成功 | 规则内容为「客户在KYC审查、客户管理中被加入欺诈名单，待处理」 |
+| 区分来源：旧数据 | 命中的名单记录 `source` 全为 NULL | 下单并付款成功 | 规则内容为兜底文案「客户被加入欺诈名单，待处理」 |
+| 缺少来源 | 直接调用拉黑接口，不带 `source` | 调用拉黑接口 | 提示「来源不能为空」，不写名单 |
 | 同设备新账号被拦 | 新账号使用了名单内的设备 | 完成 KYC，下单并付款成功 | 同上，被 QZ001 拦截 |
 | 跨市场被拦 | 名单客户在同一区域部署内换市场下单 | 下单并付款成功 | 被 QZ001 拦截 |
 | 放行 | 订单被 QZ001 拦截 | 本单欺诈信息「欺诈放行」并填写原因 | 状态变为已放行，粉色消失，订单继续清分；该客户下一单仍被拦 |
@@ -212,7 +230,9 @@
 | 允许无 KYC 的客户拉黑                              | 需求变更：仅注册的设备也要能拉黑                            | 只能按设备号和用户编号拦截                                                                                                      |
 | 两个页面都放按钮，共用 `root:customer:*` 接口和权限        | 入口位置几经变化，最终两处都要                             | 外包页不放                                                                                                              |
 | 粉色复用现有 `seriousFraudRule` 机制               | 不改前端，和 USF03 等严重规则的展示一致                     | 只有操作格变色，不是需求字面上的"整行粉色"                                                                                             |
-| 规则内容「客户被加入欺诈名单，待处理」                        | 入口有两个页面，文案不再写具体来源                           | 放弃需求原文「客户在 KYC 审查时……」                                                                                              |
+| 规则内容按拉黑来源动态生成，枚举文案「客户被加入欺诈名单，待处理」只作兜底 | 需要分辨客户是在 KYC 审查还是客户管理被拉黑；`insertFraudRiskInfo` 支持传入 `content`，`fraud_content`、订单 NOTE、备注历史会一起带上来源 | 放弃把来源只写在 `fraud_msg`（订单备注里看不到）；放弃拆成两个接口按路径判断（要多配一组权限） |
+| 名单表新增 `source` 列，由前端传入 1/2 | 两个页面共用同一接口和权限，只能靠参数区分 | 来源由前端决定，后端不校验调用方页面；移出时不记来源 |
+| 一单命中多个来源时全部列出 | 不丢信息，专员一眼看出是多重命中 | 放弃只取一个（按用户编号优先或按最早加入） |
 | 简化 KYC 备注放在 `commit()` 末尾而不是 `commitAfter` | CHN、VNM、白标、TP 充值的子类重写了 `commitAfter` 且不调用父类 | 多查一次 KYC；旧下单链路不覆盖                                                                                                  |
 | 拉黑前已在途的订单不补拦                               | 需求写的是"尝试创建订单时拦截"；补拦要改订单状态机                  | 拉黑前已过欺诈校验的订单可能到账                                                                                                   |
 | 名单不跨区域部署同步                                 | 四个区域数据库隔离                                   | 跨区域的同设备订单拦不住                                                                                                       |
@@ -239,6 +259,7 @@
 | 2026-09-28 | 初版实现：按钮放在 KYC 审查页；新建名单表、QZ001、简化 KYC 备注 | — | QZ001、简化KYC备注 |
 | 2026-09-29 | 拉黑入口迁到客户管理（含英文版变色）；没有 KYC 也允许拉黑，只记设备；拉黑成功提示条数；权限码改为 `root:customer:*`；简化 KYC 备注只判断 SHORT_KYC，改为覆盖写 | 仅注册的客户也要能按设备号拉黑 | 步骤 1、2、8；仅注册客户场景 |
 | 2026-10-08 | KYC 审查页按钮恢复，与客户管理共用接口和权限；规则内容改为「客户被加入欺诈名单，待处理」 | 两个页面都需要入口 | 步骤 1、7；页面交互 |
+| 2026-10-14 | 名单表新增 `source` 列；拉黑时前端传来源（KYC 审查 1、客户管理 2），缺失时拒绝；QZ001 命中时按来源拼规则内容写入 `fraud_content`、订单 NOTE、备注历史，多来源全部列出，来源未知用枚举兜底文案 | 需要分辨客户是在 KYC 审查还是客户管理被加入欺诈名单 | 步骤 2、5；QZ001 处理动作；数据字段；建表语句 |
 
 ---
 
@@ -249,11 +270,11 @@
 | 仓库 | 改动 |
 | --- | --- |
 | wt-entity | `FraudRiskEnum` 新增 `QZ001`（「客户被加入欺诈名单，待处理」/「等待相关人员确认」） |
-| wt-risk | 新增实体 `FraudWatchList`、`FraudWatchListMapper`（+XML）、`FraudWatchServiceImpl`（add / remove / findActiveHit）、`FraudWatchController`（`/risk/fraud/watch/add`、`/remove`）、规则 `QZ001` |
+| wt-risk | 新增实体 `FraudWatchList`（含 `source` 及常量 `SOURCE_KYC_EXAMINATION` / `SOURCE_CUSTOMER`）、`FraudWatchListMapper`（+XML）、`FraudWatchParam`（含 `source`）、`FraudWatchServiceImpl`（add 校验并记录 `source` / remove / findActiveHit）、`FraudWatchController`（`/risk/fraud/watch/add`、`/remove`）、规则 `QZ001`（`buildContent` 按来源拼规则内容后传给 `insertFraudRiskInfo`） |
 | wt-order | `OrderServiceRefactor.commit()` 末尾新增 `addShortKycOrderNote` |
-| manager-data | `UsersController` 新增 `customerCenter/customer/fraudWatch/add`、`/remove`（Feign `RiskClient` 转发，操作人取 `mg-loginName`）；`Users` / `PayerV2Ext` 新增 `fraudWatch`；`UsersServiceImpl.selectCustomers` 和 `KycServiceImpl.selectKYCList` 每页批量填充；新增只读 `FraudWatchListMapper` |
+| manager-data | `UsersController` 新增 `customerCenter/customer/fraudWatch/add`、`/remove`（Feign `RiskClient` 转发，操作人取 `mg-loginName`）；`Users` / `PayerV2Ext` 新增 `fraudWatch`；`UsersServiceImpl.selectCustomers` 和 `KycServiceImpl.selectKYCList` 每页批量填充；新增只读 `FraudWatchListMapper`；`FraudWatchReq` 新增 `source` 透传 |
 | manager-shiro | `UsersController` / `UsersClient` 新增两个转发接口，加 `@RequiresPermissions` |
-| manager-website | `customer.js`（下拉 112/113 + 行变色）、`customerEn.js`（行变色）、`kycExamination.htm/js`（行图标 + 行变色） |
+| manager-website | `customer.js`（下拉 112/113 + 行变色，拉黑传 `source: 2`）、`customerEn.js`（行变色）、`kycExamination.htm/js`（行图标 + 行变色，拉黑传 `source: 1`） |
 
 ### B. 建表语句
 
@@ -264,6 +285,7 @@ CREATE TABLE fraud_watch_list (
   type            TINYINT      NOT NULL COMMENT '1身份(姓|名|yyyy-MM-dd|证件号md5) 2设备号',
   content         VARCHAR(255) NOT NULL,
   status          TINYINT      NOT NULL COMMENT '1生效 0已移出',
+  source          TINYINT      NULL     COMMENT '加入来源 1KYC审查 2客户管理',
   create_operator VARCHAR(64),
   create_time     DATETIME,
   remove_operator VARCHAR(64),
@@ -275,9 +297,16 @@ CREATE TABLE fraud_watch_list (
 ) COMMENT '欺诈-待观察名单';
 ```
 
+已经按旧语句建过表的环境（例如测试环境），补执行：
+
+```sql
+ALTER TABLE fraud_watch_list
+  ADD COLUMN source TINYINT NULL COMMENT '加入来源 1KYC审查 2客户管理' AFTER status;
+```
+
 ### C. 上线顺序
 
-1. 建表（四个区域各自执行）。
+1. 建表（四个区域各自执行，用上面含 `source` 列的语句；已建过表的环境执行 ALTER）。wt-risk 发布前必须完成，否则读写名单表会报列不存在。
 2. 发布 entity jar。
 3. 发布 wt-risk。第 7 步插入配置之前 QZ001 不会执行。
 4. 发布 wt-order。
@@ -295,7 +324,7 @@ CREATE TABLE fraud_watch_list (
 
 ```sql
 SELECT ID, SEQ_NO, STATUS, PAYMENT_STATUS, RISK_FLAG, NOTE FROM apply_order WHERE SEQ_NO = ?;
-SELECT * FROM fraud_watch_list WHERE user_id = ?;
+SELECT * FROM fraud_watch_list WHERE user_id = ?;  -- 看 status、source
 SELECT * FROM fraud_order WHERE order_id = <订单ID>;
 SELECT * FROM fraud_overview WHERE order_id = <订单ID> AND fraud_status = 1;
 SELECT * FROM fraud_config WHERE status = 1 AND FIND_IN_SET('QZ001', support_fraud_id);
