@@ -316,8 +316,29 @@ ALTER TABLE fraud_watch_list
    2000000,102-1-12,root:customer:fraudWatchAdd,欺诈-待观察拉黑,customer,fraudWatchAdd,/customerCenter/customer/fraudWatchAdd,3,0,1,
    2000001,102-1-13,root:customer:fraudWatchRemove,移出欺诈-待观察,customer,fraudWatchRemove,/customerCenter/customer/fraudWatchRemove,3,0,1,
    ```
+```
+INSERT INTO shiro_permission
+  (shiro_code, shiro_name, name, parent, node_name, url, level, sublevel, type, icon)
+VALUES
+  ('102-1-12', 'root:customer:fraudWatchAdd',    '欺诈-待观察拉黑', 'customer', 'fraudWatchAdd',    '/customerCenter/customer/fraudWatchAdd',    3, 0, 1, ''),
+  ('102-1-13', 'root:customer:fraudWatchRemove', '移出欺诈-待观察', 'customer', 'fraudWatchRemove', '/customerCenter/customer/fraudWatchRemove', 3, 0, 1, '');
+```
    如果测试环境配过旧的 `121287` / `121288`（`root:kycDossier:fraudWatch*`），删掉。
 7. `fraud_config` 插入两行：`source_country=ALL, target_country=ALL, support_fraud_id=QZ001, status=1`，`type` 分别为 0 和 1。
+```
+UPDATE fraud_config
+SET support_fraud_id = CONCAT_WS(
+    ',', NULLIF(support_fraud_id, ''), 'QZ001'
+)
+WHERE source_country = 'ALL'
+  AND target_country = 'ALL';
+
+INSERT INTO fraud_config (  
+    source_country, target_country, support_fraud_id, `status`, `type`  
+)  
+VALUE  ('ALL', 'ALL', 'QZ001', 1, 0)
+```
+
 8. 在 **manager-data** 的 Nacos 配置中设置 `common.risk.seriousFraudRule=USF03,QZ001`，**保留 USF03**；这项配置热更新，不用重启。
 
 ### D. 排查速查（订单没被拦或没变粉）
