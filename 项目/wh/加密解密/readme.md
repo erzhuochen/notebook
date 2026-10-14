@@ -27,9 +27,11 @@ HTTP 请求
  │   ├─ 拦截器 preHandle（按注册顺序）
  │   │    1. SignatureInterceptor   有 AUTH-SIGNATURE 头 → 对【原始 body】RSA 验签
  │   │    2. MerchantInterceptor    商户码
- │   │    3. TokenInterceptor       解析 token 头 → request 属性 tokenObj；userSameSwitch 时比对 body.userId
- │   │    4. GTokenInterceptor      名单内 URL：比对 body.gToken 与 token 用户在库中的 gToken
- │   │       （3、4 需要 body 字段时调用 RequestBodyDecryptor.getPlainBody，按需提前解密）
+ │   │    3. TokenInterceptor       解析 token 头 → request 属性 tokenObj；IP黑白名单、环境、用户黑名单、韩国单点登录
+ │   │    4. UserOwnershipInterceptor  越权校验：
+ │   │         common.userSameSwitch 打开时，比对参数或 body.userId 与 token 中的 userId
+ │   │         名单 common.verifyGTokenUrls 内的 URL，比对 body.gToken 与 token 用户在库中的 gToken
+ │   │       （4 需要 body 字段时调用 RequestBodyDecryptor.getPlainBody，按需提前解密）
  │   │
  │   ├─ 参数解析：@RequestBody
  │   │    RequestBodyAdvice.beforeBodyRead → DecryptRequestBodyAdvice
@@ -107,7 +109,7 @@ HTTP 响应
 
 失败时前端收到什么：
 - 在 advice 中失败：`DecryptRequestBodyAdvice` 的 `@ExceptionHandler(BusinessException.class)` 会把**所有** `BusinessException` 都转成 `DECRYPT_FAIL`。所以解密失败、验签失败、私钥为空，前端看到的**都是 `DECRYPT_FAIL`**。
-- 在拦截器中失败：`TokenInterceptor` 和 `GTokenInterceptor` 自己 `outputResponse(DECRYPT_FAIL)`，和上面保持一致。
+- 在拦截器中失败：`UserOwnershipInterceptor` 自己 `outputResponse(DECRYPT_FAIL)`，和上面保持一致。
 - 私钥为空时不会抛解密异常，data 和 hmacKey 都是空串，然后在第 4 步验签失败。
 
 `ThreadContext`（ThreadLocal）里有 3 个标志位，每次在 `beforeBodyRead` 时 `init()`：
@@ -243,11 +245,11 @@ glc-core **自己没有** `RequestBodyAdvice` / `ResponseBodyAdvice`。glc-web �
 
 ## 6. 为什么要按需解密（gToken 越权校验改造，2026-10）
 
-**背景**：`/login/switchLogin` 等接口用 body 里的 `gToken` 定位用户，但没有校验它是否属于 token 中的用户。为此新增了 `GTokenInterceptor`，名单由 `common.verifyGTokenUrls` 配置；`TokenInterceptor` 原本也有 `userSameSwitch` 来比对 body 里的 userId。
+**背景**：`/login/switchLogin` 等接口用 body 里的 `gToken` 定位用户，但没有校验它是否属于 token 中的用户。为此新增了越权校验拦截器（最初叫 `GTokenInterceptor`，后来改名 `UserOwnershipInterceptor`，名单由 `common.verifyGTokenUrls` 配置）；`TokenInterceptor` 原本还有 `userSameSwitch` 来比对 body 里的 userId，已在后续重构中一起合并进该拦截器。
 
 **问题**：拦截器在 `RequestBodyAdvice` 之前执行，带 RS 头的请求在拦截器里只能读到密文：
 - `userSameSwitch` 读不到 userId，就**直接放行**了，形成绕过
-- `GTokenInterceptor` 读不到 gToken，就会误拒正常请求
+- gToken 校验读不到 gToken，就会误拒正常请求
 
 **比较过的方案**：
 - A. 新增 Filter 提前统一解密：影响所有加密请求，Filter 里也没有 `@ExceptionHandler`
@@ -258,6 +260,26 @@ glc-core **自己没有** `RequestBodyAdvice` / `ResponseBodyAdvice`。glc-web �
 - 只有需要 body 字段的请求（打开了 `userSameSwitch`，或者 URL 在 gToken 名单里）才会在拦截器阶段提前解密
 - 解密结果缓存在 request 上，advice 复用这份缓存，每个请求最多解密一次
 - `MyRequestWrapper` 中的原始 body 仍然是密文，`SignatureInterceptor` 的验签不受影响
+
+### 6.1 越权校验拦截器 `UserOwnershipInterceptor`
+
+越权相关的校验集中在 `UserOwnershipInterceptor` 一个类里，`preHandle` 依次执行两步，任一不通过即拒绝：
+
+| 步骤 | 配置 | 校验内容 | 拒绝条件 |
+|---|---|---|---|
+| `verifyUserId` | `common.userSameSwitch`（默认 false） | 请求参数或 body 顶层的 `userId` 与 token 中的 userId 一致 | 两者都存在且不相等 |
+| `verifyGToken` | `common.verifyGTokenUrls`（逗号分隔，Ant 匹配，默认 `/login/switchLogin,`） | body 顶层的 `gToken` 为 token 用户在库中的 gToken | tokenObj 无效、body 中无 gToken、core 查询异常或查不到、两个值不相等 |
+
+其余细节：
+- 注册在 `TokenInterceptor` 之后，**排除路径与它完全相同**（白名单接口不需要登录，也就无从做越权校验）
+- 白名单 IP 未携带 token 时两项校验都跳过
+- `verifyUserId` 沿用原有宽松行为：token 中 userId 为 0、请求中无 userId、body 不是 JSON 时都放行
+- 越权校验需要读取 body 时调用 `RequestBodyDecryptor.getPlainBody`，因此 RS 加密报文同样会被校验（这正是本次改造的目的）
+- 解密失败时返回 `DECRYPT_FAIL`，与 `DecryptRequestBodyAdvice` 的异常返回保持一致
+- 韩国单点登录检查等仍留在 `TokenInterceptor`，只有越权相关内容被移出
+
+`TokenInterceptor` 保留：IP 黑白名单、token 解析、环境检查、**用户黑名单**（属于封禁，不属于越权）、韩国单点登录。
+Controller 层还有一处越权检查：`LoginController` 的 `/login/userInfo` 在查到用户后比较 `tokenInput.userId != res.getUserId()`。它依赖查询结果，无法移到拦截器，因此保留。
 
 ---
 
@@ -289,8 +311,8 @@ glc-core **自己没有** `RequestBodyAdvice` / `ResponseBodyAdvice`。glc-web �
 | `glc-web/.../interceptor/EncryptResponseBodyAdvice.java` | 响应加密 |
 | `glc-web/.../interceptor/ThreadContext.java` | needRSA、decrypt、sign 三个标志位 |
 | `glc-web/.../interceptor/SignatureInterceptor.java` | RSA 验签 + 防重放 |
-| `glc-web/.../interceptor/TokenInterceptor.java` | token 解析 + userSameSwitch |
-| `glc-web/.../interceptor/GTokenInterceptor.java` | gToken 归属校验 |
+| `glc-web/.../interceptor/TokenInterceptor.java` | token 解析、IP/用户黑白名单、环境检查、韩国单点登录 |
+| `glc-web/.../interceptor/UserOwnershipInterceptor.java` | 越权校验：userId 一致性 + gToken 归属 |
 | `glc-web/.../interceptor/WebAppConfigurer.java` | 拦截器注册顺序 |
 | `glc-web/.../config/EncodeUrlDataConfig.java` | `common.encode.*` |
 | `glc-web/.../config/SignatureConfigs.java` | `glc.common.signature.*` |
