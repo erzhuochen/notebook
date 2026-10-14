@@ -2,8 +2,7 @@
 1. 网关会校验token，且若传入的参数中有userId 则校验token中的userId和参数中的是否相等 -> 如果参数中的userId为null，不会校验，攻击者可能会随便拿一个token，不传userId就能通过校验
 
 需要修改的接口：
-- 114：verify/voucher
-- 128
+- 128：已改
 
 ## 扩展：http请求的结构组成
 这里的 **“请求属性（attribute）”是服务端给当前请求附加的数据**。`tokenObj` 是项目约定的名称，通过 `setAttribute()` 创建，不需要提前声明字段。
@@ -279,13 +278,13 @@ request.mutate()
 |ApplyOrderController|selectDonationOrderByUser|POST donationOrder/byUser/{userId}|是|路径 userId 直接接收他人 userId，无任何 token 校验，可越权查询任意用户的捐款订单证书（敏感信息泄露）|强制从 token 提取 userId，路径中 userId 与 token 不匹配时拒绝|高|葛菁|2020-02-07|网关层已校验||||
 
 
-## 114：未校验
+## 114：哥们在白名单
 
 |                      |               |                     |     |                                                      |                      |     |             |            |     |     |     |     |
 | -------------------- | ------------- | ------------------- | --- | ---------------------------------------------------- | -------------------- | --- | ----------- | ---------- | --- | --- | --- | --- |
 | ApplyOrderController | verifyVoucher | POST verify/voucher | 是   | 无 token 校验，body 中 seqNoBase64 解密出 seqNo 可越权开收据（财务风险） | token 校验并核对订单 userId | 高   | gunjiezs123 | 2022-11-25 |     |     |     |     |
 
-## 128：若contentType为`multipart/form-data`，网关无法自动校验
+## 128：若contentType为`multipart/form-data`，网关无法自动校验（已校验）
 
 |                          |                            |                                   |     |                                               |                                 |     |        |            |     |     |     |     |
 | ------------------------ | -------------------------- | --------------------------------- | --- | --------------------------------------------- | ------------------------------- | --- | ------ | ---------- | --- | --- | --- | --- |
