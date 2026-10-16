@@ -177,7 +177,7 @@
 | 内容 | 文件或链接 | 对应的需求步骤 |
 | --- | --- | --- |
 | 越权检查的通用判断方法 | [如何判断是否越权？.md](./如何判断是否越权？.md) | 背景 |
-| 同一系列的另一处越权修复 | [[越权检查-17] switchLogin gToken 归属校验 + 加密报文解密后校验.md](./[越权检查-17]%20switchLogin%20gToken%20归属校验%20+%20加密报文解密后校验.md) | 背景 |
+| 同一系列的另一处越权修复 | [【code】 switchLogin gToken 归属校验 + 加密报文解密后校验.md](./【code】%20switchLogin%20gToken%20归属校验%20+%20加密报文解密后校验.md) | 背景 |
 | 网关的请求体工具类 | `wt-web-gateway/.../utils/GatewayHttpUtil.java`（`isMultipartFormData` :67、`getMultipartTextField` :77、`findTextField` :101、`MalformedMultipartException` :178） | R1、R3–R7 |
 | 业务校验过滤器 | `wt-web-gateway/.../filters/Pre40BusinessCheckGlobalFilter.java`（`extractRequestUserId` :152、multipart 分支 :157、`parseParamUserId` :180） | R2、R8、R9 |
 | 请求体缓存 | `wt-web-gateway/.../filters/PreCacheBodyGlobalPreFilter.java` | 步骤 1 |
