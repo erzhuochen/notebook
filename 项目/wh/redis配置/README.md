@@ -49,6 +49,28 @@ flowchart TD
 
 ## 2. Redis 配置从哪里来
 
+### 2.0 配置之间的关系整理
+
+**RedisTemplate**：提供 Redis 操作  
+├─ 序列化器：Java 数据与 Redis 字节数据之间的转换  
+└─ **RedisConnectionFactory**：连接工厂接口  
+	└─ JedisConnectionFactory：本项目使用的实现  
+		├─ **JedisClientConfiguration**：客户端配置  
+		│ └─ JedisPoolConfig：连接池参数  
+		└─ **Redis 服务端配置**：按部署模式选择  
+		├─ RedisStandaloneConfiguration：单机地址、密码、数据库等  
+		└─ RedisClusterConfiguration：集群节点、密码、重定向次数等
+
+| 名称                                                           | 准确角色                                                |
+| ------------------------------------------------------------ | --------------------------------------------------- |
+| `RedisTemplate`                                              | **具体类**，本项目直接通过 `new RedisTemplate<>()` 使用          |
+| `RedisConnectionFactory`                                     | **接口**，定义获取 Redis 连接的能力                             |
+| `JedisConnectionFactory`                                     | 上述接口的具体实现                                           |
+| `JedisClientConfiguration`                                   | **接口**，描述 Jedis 客户端配置，通过 Builder 构建配置对象             |
+| `JedisPoolConfig`                                            | **具体配置类**，提供连接池参数；不是 `JedisClientConfiguration` 的子类 |
+| “Redis 服务端配置”                                                | 这里是一个概念分组名称                                         |
+| `RedisStandaloneConfiguration` / `RedisClusterConfiguration` | 具体配置类，分别描述单机和集群                                     |
+
 ### 2.1 从 profile 找到 Nacos 配置
 
 入口是 [bootstrap.properties:14](D:/workspace/wh/manager/manager-data/src/main/resources/bootstrap.properties:14)。本地文件默认激活 `local`；部署脚本又会通过启动参数传入环境，见 [deploy.sh:105](D:/workspace/wh/manager/manager-data/deploy.sh:105)：
@@ -97,15 +119,15 @@ spring.cloud.nacos.config.shared-configs[3].refresh=true
 
 字段定义见 [RedisConfig.java:30](D:/workspace/wh/manager/manager-data/src/main/java/com/wotransfer/dataManagement/config/RedisConfig.java:30)，应用参数见 [RedisConfig.java:73](D:/workspace/wh/manager/manager-data/src/main/java/com/wotransfer/dataManagement/config/RedisConfig.java:73)。下列字段在本类中均未声明默认值。
 
-| 配置项 | Java 类型 | 对应调用 | 含义 |
-| --- | --- | --- | --- |
-| `redis.maxTotal` | `int` | `setMaxTotal` | 连接池最多可管理的连接数 |
-| `redis.maxIdle` | `int` | `setMaxIdle` | 池中最多保留的空闲连接数 |
-| `redis.maxWait` | `int` | `setMaxWaitMillis` | 从连接池借连接的最大等待时间，单位为毫秒 |
-| `redis.testOnBorrow` | `boolean` | `setTestOnBorrow` | 借出连接时是否校验连接 |
-| `redis.testOnReturn` | `boolean` | `setTestOnReturn` | 归还连接时是否校验连接 |
-| `redis.testWhileIdle` | `boolean` | `setTestWhileIdle` | 空闲检测时是否校验连接 |
-| `redis.timeBetweenEvictionRunsMillis` | `long` | `setTimeBetweenEvictionRunsMillis` | 空闲资源检测任务的运行间隔，单位为毫秒 |
+| 配置项                                   | Java 类型   | 对应调用                               | 含义                   |
+| ------------------------------------- | --------- | ---------------------------------- | -------------------- |
+| `redis.maxTotal`                      | `int`     | `setMaxTotal`                      | 连接池最多可管理的连接数         |
+| `redis.maxIdle`                       | `int`     | `setMaxIdle`                       | 池中最多保留的空闲连接数         |
+| `redis.maxWait`                       | `int`     | `setMaxWaitMillis`                 | 从连接池借连接的最大等待时间，单位为毫秒 |
+| `redis.testOnBorrow`                  | `boolean` | `setTestOnBorrow`                  | 借出连接时是否校验连接          |
+| `redis.testOnReturn`                  | `boolean` | `setTestOnReturn`                  | 归还连接时是否校验连接          |
+| `redis.testWhileIdle`                 | `boolean` | `setTestWhileIdle`                 | 空闲检测时是否校验连接          |
+| `redis.timeBetweenEvictionRunsMillis` | `long`    | `setTimeBetweenEvictionRunsMillis` | 空闲资源检测任务的运行间隔，单位为毫秒  |
 
 `maxWait` 是等待从池里借到连接的时间，不是 TCP 建连超时，也不是 Redis 命令读取超时。当前 `JedisClientConfiguration` 的构建代码只显式配置连接池，没有显式调用连接或读取超时设置，见 [RedisConfig.java:107](D:/workspace/wh/manager/manager-data/src/main/java/com/wotransfer/dataManagement/config/RedisConfig.java:107)。不能据此推断底层没有超时；它们可能采用依赖默认值。
 
@@ -194,11 +216,11 @@ spring.main.allow-bean-definition-overriding=true
 
 两份模板配置的序列化设置相同，见 [RedisConfig.java:169](D:/workspace/wh/manager/manager-data/src/main/java/com/wotransfer/dataManagement/config/RedisConfig.java:169) 和 [RedisTemplateConfig.java:36](D:/workspace/wh/manager/manager-data/src/main/java/com/wotransfer/dataManagement/config/RedisTemplateConfig.java:36)。
 
-| 位置 | 序列化器 | 阅读 Redis 数据时的含义 |
-| --- | --- | --- |
-| Redis Key | `StringRedisSerializer` | 例如 `NZ_BANK_INFO`，按字符串编码 |
-| Hash field | `StringRedisSerializer` | 例如银行编号拼接字段，按字符串编码 |
-| 普通 value | `GenericJackson2JsonRedisSerializer` | Java 值以 JSON 方式序列化 |
+| 位置         | 序列化器                                 | 阅读 Redis 数据时的含义           |
+| ---------- | ------------------------------------ | ------------------------- |
+| Redis Key  | `StringRedisSerializer`              | 例如 `NZ_BANK_INFO`，按字符串编码  |
+| Hash field | `StringRedisSerializer`              | 例如银行编号拼接字段，按字符串编码         |
+| 普通 value   | `GenericJackson2JsonRedisSerializer` | Java 值以 JSON 方式序列化        |
 | Hash value | `GenericJackson2JsonRedisSerializer` | 每个 field 对应的值以 JSON 方式序列化 |
 
 `RedisTemplate<String, Object>` 的 `Object` 是 Java 层的类型，不表示 Redis 多了一种 Object 数据类型。普通 `set` 写入的底层 Redis 类型仍然是 String；`hset` 操作 Hash；`lSet` 操作 List。
