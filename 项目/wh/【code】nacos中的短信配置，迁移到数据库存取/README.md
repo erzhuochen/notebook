@@ -25,7 +25,6 @@
   - Redis 可能是集群，所以日计数和小时计数各用一个只操作单 key 的原子脚本：先日后小时，小时超限时回退日计数。只有并发请求恰好卡在阈值边界时才可能有 1 条误差，可以接受。
   - 已有计数遇到修改阈值时**不清零**。阈值调到已发条数以下时，该区号立即被拦。
   - 不做小时上限不能大于日上限的校验。
-  - 工作区里原有的一份"notification 自己管配置 + 内部 HTTP 接口 + token"的改造已整体废弃，改为由管理台负责配置。
 - **当前待确认**：无（上线前需核对 Redis 配置，见第 5 节）
 
 ## 1. 背景、目标与范围
@@ -83,7 +82,7 @@ private Integer queryAreaDayLimit(String areaCode) {
 | 2 | 第 1 步写库成功后自动执行 | 库里有已启用的 DEFAULT 行，且两个上限都不为空 | 全量读表，只取已启用且不为 NULL 的值。先写临时 key `{WT:SMS:OTP_LIMIT:DAY}:TMP:uuid`，再 `RENAME` 成正式 key（小时同理） | Redis 的两个 hash 更新，无 TTL | 没有 DEFAULT 时提示"缓存未刷新"；Redis 失败时提示"保存成功，但缓存刷新失败" |
 | 3 | 运营点删除（二次确认），或点"刷新缓存" | 分别需要 `delete` / `refresh` 权限 | 删除后同样全量刷新 | 该区号回落到 DEFAULT | DEFAULT 行不能删除 |
 | 4 | 用户请求验证码，上游（wt-web、glc、tp）投递 MQ | — | `otpSms` 消费消息，清洗手机号 | — | — |
-| 5 | `OtpSmsLimiter.acquire` | — | 区号归一化 → `HMGET` 两个 hash 的 `DEFAULT` 和该区号 → 得到日上限、小时上限 | — | 缺少 DEFAULT 时回源查库并重建缓存；库里也没有时用硬编码的 20000 / 500 并打 ERROR；回源结果在本地保留 60 秒 |
+| 5 | `OtpSmsLimiter.acquire` | — | 区号归一化 → `HMGET` 两个 hash 的 `DEFAULT` 和该区号 → 得到日上限、小时上限 | — | 缺少 DEFAULT 时回源查库，用 `RENAMENX` 回填缓存（正式 key 已存在就不覆盖）；库里也没有时用硬编码的 500 / 200 并打 ERROR；回源结果在本地保留 60 秒 |
 | 6 | 计数 | — | 日 key 执行脚本：当前值 ≥ 上限就拒绝，否则 `INCR` 并 `EXPIRE 86400`。然后小时 key 同样处理，`EXPIRE 3600` | 两个计数各加 1，继续选渠道发送 | 日超限：直接拦截。小时超限：回退日计数后拦截 |
 | 7 | 被拦截 | — | 打 WARN 日志（区号、维度、当前条数、上限）→ `sendWarnSms` | 给 `optLimitNotify` 里的号码发告警短信 | 同一类型（日期或小时 + 区号）当天只告警一次，告警 key 的 TTL 为 25 小时 |
 
@@ -94,7 +93,7 @@ private Integer queryAreaDayLimit(String areaCode) {
 | R1 上限取值 | 每条 OTP 发送前 | 按归一化后的区号匹配 hash field | 有该区号的值就用它，否则用 DEFAULT 的值 | 仅 `otpSms` | 某一项为 NULL 或该区号已停用时，这一项用 DEFAULT |
 | R2 日拦截 | 每条 OTP 发送前 | `OTP_LIMIT_{yyyyMMdd}{区号}` 的当前值 ≥ 日上限 | 不发送、不计数，记 WARN，发告警 | 同上 | 上限为 0 时一条都不发，也不会创建计数 key |
 | R3 小时拦截 | 日拦截通过之后 | `OTP_LIMIT_{yyyyMMddHH}{区号}` 的当前值 ≥ 小时上限 | 不发送，回退日计数，记 WARN，发告警 | 同上 | — |
-| R4 缓存缺失兜底 | R1 读 hash 时 | 任一 hash 里没有 `DEFAULT` 这个 field | 查库重建缓存；库里也没有 DEFAULT 就用 20000 / 500 | 同上 | 回源结果本地缓存 60 秒，避免每条短信都打库 |
+| R4 缓存缺失兜底 | R1 读 hash 时 | 任一 hash 里没有 `DEFAULT` 这个 field | 查库并用 `RENAMENX` 回填缓存，不覆盖已存在的 key；库里也没有 DEFAULT 就用 500 / 200 | 同上 | 回源结果本地缓存 60 秒，避免每条短信都打库 |
 | R5 区号规范 | 管理台保存时，以及 notification 读取时 | 去掉空白；没有 `+` 就补上；必须匹配 `\+\d{1,6}`，`DEFAULT` 不区分大小写 | 管理台：格式不对就拒绝保存。notification：格式不对就只用 DEFAULT | 两端 | 计数 key 仍用上游传来的原始区号，保证和线上已有 key 一致 |
 | R6 DEFAULT 保护 | 管理台保存、删除时 | 区号为 DEFAULT | 两个上限必填，不能停用，不能删除 | 管理台 | — |
 | R7 告警去重 | 被拦截时 | `OTP_LIMIT_NOTIFY_DATE{type}` 的值等于当天日期 | 跳过，不再告警 | notification | type 为"日期 + 区号"或"小时 + 区号"，日、小时分开去重 |
@@ -150,12 +149,14 @@ private Integer queryAreaDayLimit(String areaCode) {
 - **跨区域**：prod、eu、sg 等各区域各自建表、导数、刷新缓存。
 - **Redis 实例**：manager-data 用 `manager-redis.properties`，notification 用 `redis.properties`。从间接证据看是同一个实例（`LANG_DICT_MSG` 也是这样跨服务共享的），**上线前需要到 nacos 逐个环境核对 host 和 database**。
 - **数据缺失**：
-  - hash 里缺少 DEFAULT：notification 回源查库并重建。
-  - 库里也没有 DEFAULT：用 20000 / 500 并打 ERROR。
+  - hash 里缺少 DEFAULT：notification 回源查库，并用 `RENAMENX` 回填，正式 key 已存在时不覆盖。
+  - 库里也没有 DEFAULT：用 500 / 200 并打 ERROR。
   - 查库异常：同样走硬编码默认值，不会因此拒发。
 - **Redis 不可用**：计数脚本抛出的异常会被 `otpSms` 外层 catch 吞掉，这条短信不发，MQ 消息照常确认（和改造前一致）。
 - **修改阈值**：即时生效，已有计数不清零。
 - **刷新的中间状态**：两个 hash 是分别 `RENAME` 的，中间有毫秒级窗口，可能读到"日上限是新值、小时上限是旧值"，可以接受。
+- **回源和刷新并发**：notification 回源查到的是旧快照，如果管理台恰好刚刷新完，用 `RENAME` 回填会把新配置覆盖回去；hash 又没有 TTL，之后也不会再回源，于是旧值一直生效（比如紧急设的禁发静默失效）。所以 notification 回填用 `RENAMENX`，只在 key 不存在时写入；管理台是配置的权威来源，刷新仍用无条件 `RENAME`，总能覆盖 notification 的回填。
+- **多个管理员同时刷新**（未修复）：先读库的刷新可能后写入，用旧快照覆盖新配置。概率很低，但触发场景和攻击时的紧急封禁重叠。可以在 `refresh()` 外加 Redis 锁来修复（key 为 `WT:SMS:OTP_LIMIT:REFRESH_LOCK`，带 TTL，释放时用 Lua 比对 value），已验证方案可行，但对应的提交已回滚，暂不上线。
 - **集群兼容**：临时 key 用 hash tag `{正式key}:TMP:uuid`，保证在集群模式下和正式 key 落在同一个 slot。
 - **上线当天**：旧计数 key 里的值比实际发送数少 1（旧逻辑第一条记为 0），当天会多放行 1 条，第二天恢复正常。
 - **`evalMethod` 传参**：参数必须是数字（Integer/Long）。它用 value 序列化器序列化参数，传 String 会带上引号，Lua 里 `tonumber` 得到 nil。
@@ -172,8 +173,8 @@ private Integer queryAreaDayLimit(String areaCode) {
 | 停用 | `+44` 已停用 | 发送 | 两个上限都用 DEFAULT |
 | 区号录入 | 新增时区号填 `86` | 保存 | 存为 `+86`；填 `abc` 时提示格式不正确 |
 | DEFAULT 保护 | — | 删除或停用 DEFAULT 行，或把它的上限清空 | 都被拒绝 |
-| 缓存缺失 | 手动删掉两个 hash | 发 1 条 OTP | 从库里重建 hash，日志记 WARN"已从数据库重建" |
-| 库里也无配置 | 表为空，hash 也不存在 | 发送 | 按 20000 / 500 判断，日志记 ERROR；60 秒内不重复查库 |
+| 缓存缺失 | 手动删掉两个 hash | 发 1 条 OTP | 从库里回填 hash，日志记 WARN"已从数据库回填，DAY:true，HOUR:true" |
+| 库里也无配置 | 表为空，hash 也不存在 | 发送 | 按 500 / 200 判断，日志记 ERROR；60 秒内不重复查库 |
 | 旧计数兼容 | 旧逻辑写下的 key 值为 5，没有 TTL | 发送 | 接着累加到 6，并补上 TTL |
 | 告警去重 | 同一区号当天反复超限 | 多次触发 | 每种类型当天只发一次告警短信 |
 
@@ -190,6 +191,7 @@ private Integer queryAreaDayLimit(String areaCode) {
 | 管理台直接写 Redis | 已有 `LANG_DICT_MSG`、`GLC:CAPTCHA:*` 先例 | 放弃"notification 提供内部接口 + token"的方案（已废弃的旧改造） |
 | 缓存缺失时回源查库，再不行用硬编码默认值 | 拒发会导致全站收不到验证码，放行会在攻击时失守 | 放弃"回落到 nacos 旧配置" |
 | 先写临时 key 再 RENAME | 避免"先删后写"中间出现空缓存 | 两个 hash 之间有毫秒级的不一致 |
+| notification 回填用 `RENAMENX`，管理台刷新用 `RENAME` | 防止旧快照覆盖新配置，同时让管理台始终是权威来源 | 多个管理员并发刷新的问题（旧快照覆盖）暂未修复，对应提交已回滚 |
 | 计数沿用旧 key 格式 | 上线当天计数不归零 | — |
 | 日、小时分两个单 key 脚本，小时超限时回退日计数 | Redis 可能是集群，多 key 脚本会跨 slot 报错 | 只有并发恰好卡在阈值边界时可能有 1 条误差 |
 | 不拦 `otpSmsHuaWei` | 需求方决定 | 攻击者如果走 glc 登录（华为渠道）可以绕过限额 |
@@ -236,3 +238,5 @@ private Integer queryAreaDayLimit(String areaCode) {
 | 2026-10-16 | 计数从"单个 Lua 同时处理两个 key"改为"两个单 key 脚本，小时超限时回退日计数" | Redis 可能是集群，多 key 脚本会跨 slot | R2、R3 |
 | 2026-10-16 | 权限 `shiro_code` 从 110-18 系列调整为 110-19 系列；插入时不写主键 | 编号按实际环境调整；避免生产主键冲突 | 第 4 节 权限 |
 | 2026-10-16 | 两个 `SmsLimitConfig` 实体改用 Lombok `@Data` | 精简代码 | 无 |
+| 2026-10-16 | 代码兜底默认上限从 20000 / 500 改为 500 / 200 | 缓存和库都没有配置时按更保守的值拦截 | R4 |
+| 2026-10-16 | notification 回填改用 `RENAMENX`；管理台刷新加 Redis 锁 | 评审发现回源的旧快照可能覆盖管理台刚刷新的新配置（如禁发），而且会持续失效 | R4、第 2 节步骤 2 和 5 |
