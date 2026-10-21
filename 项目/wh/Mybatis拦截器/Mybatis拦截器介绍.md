@@ -15,7 +15,7 @@
 - BoundSql：表示动态生成的SQL语句以及相应的参数信息。
 
 ## 1.2. 执行过程
-![](README.assets/file-20261019162805240.png)
+![](Mybatis拦截器介绍.assets/file-20261019162805240.png)
 
 # 2. 实现步骤
 写一个实现org.apache.ibatis.plugin.Interceptor接口的拦截器类，并实现其中的方法。
@@ -64,7 +64,7 @@ org.apache.ibatis.scripting.defaults.DefaultParameterHandler
 org.apache.ibatis.executor.resultset.DefaultResultSetHandler
 ```
 
-![](README.assets/file-20261019163142201.png)
+![](Mybatis拦截器介绍.assets/file-20261019163142201.png)
 
 ### 2.1.2. method
 
