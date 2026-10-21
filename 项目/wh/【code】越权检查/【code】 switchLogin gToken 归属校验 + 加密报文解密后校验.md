@@ -78,12 +78,12 @@
 无页面改动。前端在校验失败时收到的错误码，都是现有错误码（`USER_NOT_LOGIN` / `DECRYPT_FAIL`），失败响应也不会被加密，所以前端不需要适配。
 
 ### 数据字段
-| 字段 | 来源 | 何时记录或更新 | 用途 | 特殊说明 |
-| --- | --- | --- | --- | --- |
-| `common.verifyGTokenUrls` | Nacos `logincenter.yml` / `CommonConfigs` 默认值 | 配置变更后刷新 | gToken 校验名单 | 代码默认值是 `/login/switchLogin,` |
-| `common.userSameSwitch` | Nacos `logincenter.yml` | 同上 | userId 一致性校验开关 | 代码默认值是 `false` |
-| request 属性 `GLC_DECRYPTED_PLAIN_BODY` | `RequestBodyDecryptor` | 第一次解密成功时 | 同一请求内复用明文 | 只在请求内有效 |
-| `global_user_kycs.g_token` | 数据库 | 已有 | 按 `user_id + country_code` 查出 gToken | 复用 `selectGTokenByUserIdAndCountryCode` |
+| 字段                                    | 来源                                            | 何时记录或更新  | 用途                                   | 特殊说明                                    |
+| ------------------------------------- | --------------------------------------------- | -------- | ------------------------------------ | --------------------------------------- |
+| `common.verifyGTokenUrls`             | Nacos `logincenter.yml` / `CommonConfigs` 默认值 | 配置变更后刷新  | gToken 校验名单                          | 代码默认值是 `/login/switchLogin,`            |
+| `common.userSameSwitch`               | Nacos `logincenter.yml`                       | 同上       | userId 一致性校验开关                       | 代码默认值是 `false`                          |
+| request 属性 `GLC_DECRYPTED_PLAIN_BODY` | `RequestBodyDecryptor`                        | 第一次解密成功时 | 同一请求内复用明文                            | 只在请求内有效                                 |
+| `global_user_kycs.g_token`            | 数据库                                           | 已有       | 按 `user_id + country_code` 查出 gToken | 复用 `selectGTokenByUserIdAndCountryCode` |
 
 ### 权限与操作记录
 - 校验失败时记 error 日志：`gToken verify fail, <原因>, uri=..., tokenUserId=..., countryCode=...`；
