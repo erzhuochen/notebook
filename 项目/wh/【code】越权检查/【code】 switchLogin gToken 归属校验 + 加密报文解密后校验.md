@@ -57,16 +57,16 @@
 
 ## 2. 完整业务链路
 
-| 步骤 | 触发者与触发时点 | 前置条件 | 系统动作 | 页面或数据结果 | 取消、失败或例外 |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 客户端请求进入 | 无 | `HttpServletRequestReplacedFilter` 用 `MyRequestWrapper` 缓存原始 body；如果是加密请求，缓存的就是密文 | body 可以重复读取 | 无 |
-| 2 | 拦截器 `SignatureInterceptor` | 请求带 `AUTH-SIGNATURE` 头 | 用**原始 body**（加密请求就是密文）加上时间戳做 RSA 验签 | — | 验签失败返回 `SIGNATURE_FAIL` |
-| 3 | 拦截器 `TokenInterceptor` | 路径不在 excludePaths 中 | 解析 token，得到 `tokenObj`；检查黑名单、环境等 | request 上多了 `tokenObj` 属性 | IP 在白名单里且没带 token 时放行 |
-| 4 | `UserOwnershipInterceptor.verifyUserId` | `userSameSwitch=true` | 优先取 query 参数里的 `userId`；没有的话，调用 `RequestBodyDecryptor.getPlainBody` 拿到明文 body，取顶层的 `userId`，与 token 里的 userId 比较 | 加密请求的明文被缓存到 request 属性上 | 解密失败返回 `DECRYPT_FAIL`；不一致返回 `USER_NOT_LOGIN`；body 里没有 userId 时放行 |
-| 5 | `UserOwnershipInterceptor.verifyGToken` | 请求路径匹配 `verifyGTokenUrls` | 取 `tokenObj` 里的 userId → 调用 `getPlainBody` 拿到明文，取顶层的 `gToken` → 通过 Feign 调用 core 的 `GET query/gToken/{userId}` 拿到 gToken 列表 → 检查请求里的 gToken 是否在列表中 | — | 见规则 R3 |
-| 6 | `DecryptRequestBodyAdvice.beforeBodyRead` | Controller 有 `@RequestBody` 参数，且请求带 `RS` 头 | 调用 `requestBodyDecryptor.decrypt`；如果第 4 或第 5 步已经解密过，直接复用缓存 | Controller 收到明文对象 | 抛出 `BusinessException` 后，由 `@ExceptionHandler` 统一返回 `DECRYPT_FAIL` |
-| 7 | Controller / core | 前面的步骤都通过 | 执行原有业务逻辑 | — | — |
-| 8 | `EncryptResponseBodyAdvice` | 请求带 `RS` 头，且业务成功 | 加密响应（这部分没有改动） | — | 失败响应（`!isSuc()`）不加密 |
+| 步骤  | 触发者与触发时点                                  | 前置条件                                       | 系统动作                                                                                                                                               | 页面或数据结果                   | 取消、失败或例外                                                           |
+| --- | ----------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ |
+| 1   | 客户端请求进入                                   | 无                                          | `HttpServletRequestReplacedFilter` 用 `MyRequestWrapper` 缓存原始 body；如果是加密请求，缓存的就是密文                                                                  | body 可以重复读取               | 无                                                                  |
+| 2   | 拦截器 `SignatureInterceptor`                | 请求带 `AUTH-SIGNATURE` 头                     | 用**原始 body**（加密请求就是密文）加上时间戳做 RSA 验签                                                                                                                | —                         | 验签失败返回 `SIGNATURE_FAIL`                                            |
+| 3   | 拦截器 `TokenInterceptor`                    | 路径不在 excludePaths 中                        | 解析 token，得到 `tokenObj`；检查黑名单、环境等                                                                                                                   | request 上多了 `tokenObj` 属性 | IP 在白名单里且没带 token 时放行                                              |
+| 4   | `UserOwnershipInterceptor.verifyUserId`   | `userSameSwitch=true`                      | 优先取 query 参数里的 `userId`；没有的话，调用 `RequestBodyDecryptor.getPlainBody` 拿到明文 body，取顶层的 `userId`，与 token 里的 userId 比较                                   | 加密请求的明文被缓存到 request 属性上   | 解密失败返回 `DECRYPT_FAIL`；不一致返回 `USER_NOT_LOGIN`；body 里没有 userId 时放行   |
+| 5   | `UserOwnershipInterceptor.verifyGToken`   | 请求路径匹配 `verifyGTokenUrls`                  | 取 `tokenObj` 里的 userId → 调用 `getPlainBody` 拿到明文，取顶层的 `gToken` → 通过 Feign 调用 core 的 `GET query/gToken/{userId}` 拿到 gToken 列表 → 检查请求里的 gToken 是否在列表中 | —                         | 见规则 R3                                                             |
+| 6   | `DecryptRequestBodyAdvice.beforeBodyRead` | Controller 有 `@RequestBody` 参数，且请求带 `RS` 头 | 调用 `requestBodyDecryptor.decrypt`；如果第 4 或第 5 步已经解密过，直接复用缓存                                                                                         | Controller 收到明文对象         | 抛出 `BusinessException` 后，由 `@ExceptionHandler` 统一返回 `DECRYPT_FAIL` |
+| 7   | Controller / core                         | 前面的步骤都通过                                   | 执行原有业务逻辑                                                                                                                                           | —                         | —                                                                  |
+| 8   | `EncryptResponseBodyAdvice`               | 请求带 `RS` 头，且业务成功                           | 加密响应（这部分没有改动）                                                                                                                                      | —                         | 失败响应（`!isSuc()`）不加密                                                |
 
 ## 3. 具体规则
 
@@ -118,7 +118,7 @@
   - 把 Nacos 里的 `verifyGTokenUrls` 设为空字符串，就能关闭 gToken 校验。
   - 把 `userSameSwitch` 设为 `false`，就能关闭 userId 校验；如果名单也为空，拦截器就不会提前解密。
 - **与其他规则同时命中时**：执行顺序是 SignatureInterceptor → MerchantInterceptor → TokenInterceptor → UserOwnershipInterceptor，前面任何一个拒绝了，后面的都不会执行。UserOwnershipInterceptor 依赖 `tokenObj`，所以必须注册在 TokenInterceptor 之后，排除路径也要保持一致。
-- **已知前提**：userId 在所有服务器之间不重复（leader 已确认）。如果以后某个服务器的 ID 分配方式变了，导致不同服务器的 userId 撞号，只按 userId 查询就可能查到另一个服务器上同号用户的 gToken，从而产生越权。
+- **已知前提**：userId 在所有服务器之间不重复。如果以后某个服务器的 ID 分配方式变了，导致不同服务器的 userId 撞号，只按 userId 查询就可能查到另一个服务器上同号用户的 gToken，从而产生越权。
 
 ## 6. 验收场景
 
@@ -155,12 +155,11 @@
 | 日志脱敏、token 过期检查不在这次范围内 | 用户的决定 | 已知风险：gToken 和明文密码仍然会出现在日志里；token 永久有效 |
 
 ### 待确认
-| 问题 | 为什么影响实施 | 需要谁确认 |
-| --- | --- | --- |
-| 在测试环境验证"选择市场后切换到新市场"和"越权"两个场景 | 两个都通过后，才能把生产的 `verifyGTokenUrls` 改回 `/login/switchLogin` | 开发 / 测试 |
-| 线上 Nacos 里 `userSameSwitch` 的状态 | 如果已经开启，加密请求会开始做 userId 校验，之前被跳过的不一致请求会开始被拒绝 | 开发 / 运维 |
-| （可选）在生产库执行 `SELECT COUNT(*) FROM (SELECT user_id FROM global_user_kycs GROUP BY user_id HAVING COUNT(DISTINCT server) > 1) t;` | 用数据证明 userId 没有跨服务器撞号（同步逻辑 `insertSyncUserKyc` 用的唯一键是 `(userId, countryCode)`，和"userId 全局唯一"的说法不完全吻合） | 开发 |
-| 是否把 `/login/userInfo`、`/global/auth/user/unbind` 也加进名单 | 这两个接口同样直接信任 body 里的 gToken | 开发 |
+| 问题                                                                                                                             | 为什么影响实施                                                                                               | 需要谁确认   |
+| ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ------- |
+| 在测试环境验证"选择市场后切换到新市场"和"越权"两个场景                                                                                                  | 两个都通过后，才能把生产的 `verifyGTokenUrls` 改回 `/login/switchLogin`                                              | 开发 / 测试 |
+| 线上 Nacos 里 `userSameSwitch` 的状态                                                                                                | 如果已经开启，加密请求会开始做 userId 校验，之前被跳过的不一致请求会开始被拒绝                                                           | 开发 / 运维 |
+| 是否把 `/login/userInfo`、`/global/auth/user/unbind` 也加进名单                                                                         | 这两个接口同样直接信任 body 里的 gToken                                                                            | 开发      |
 
 ## 8. 原型与附件
 
