@@ -1,4 +1,30 @@
-# 数据库同步
-
-在 ”D:\workspace\wh\manager\manager-data\src\main\java\com\wotransfer\dataManagement\config\DataSourceConfig.java“ 中通过"D:\workspace\wh\manager\manager-data\src\main\java\com\wotransfer\dataManagement\intercept\MybatisInterceptor.java"拦截sql请求，并通过”pmmClient.syncManagerSql(sqlSyncDTO);” 向其他的服务器发送相同的sql语句去同步数据库。
-模仿它的形式，在“D:\workspace\wh\manager\manager-data\src\main\java\com\wotransfer\dataManagement\config\DataSourceConfigWallet.java”中配置拦截器
+# 美国ACH订单到账备注打印优化方案  
+  
+## 一、背景问题  
+  
+目前，**美国ACH订单只有在满足到账时间时**，才会通过定时任务打印到账规则的备注，导致备注信息**明显滞后**，管理后台无法及时看到相关说明。  
+  
+## 二、优化目标  
+  
+希望**合作方回调时即可打印备注到管理后台**，使信息展示更及时。  
+  
+## 三、核心难点  
+  
+合作方回调与到账规则执行（定时任务）是**两个独立步骤**，需要保证备注**不重复打印**。  
+  
+## 四、实现思路  
+  
+1. **回调阶段写入缓存**  
+   合作方回调时，将对应的待打印订单**写入缓存**，并设置**合理的过期时间**，避免订单长时间滞留在缓存中，导致**缓存溢出**。  
+  
+2. **定时任务阶段判断并打印**  
+   到账任务执行时，判断该订单**是否存在于缓存中**：  
+   - 若存在，则**执行打印备注**；  
+   - 打印完成后，**立即删除该条缓存**，防止重复打印。  
+  
+## 五、相关代码位置  
+  
+| 环节    | 项目         | 方法                     |     |
+| ----- | ---------- | ---------------------- | --- |
+| 合作方回调 | wt-usorder | `dealAchAllTransCsv()` |     |
+| 到账任务  | wt-usorder | `fastRemit()`          |     |
